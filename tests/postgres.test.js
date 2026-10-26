@@ -108,9 +108,11 @@ test('PostgreSQL network: simultaneous joins share one world, two heroes survive
   const health = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json(); assert.equal(health.storage, 'postgresql');
   // Shutdown must flush the final snapshot, even when another write is in flight.
   shared.players.get(hero.id).gold = 99;
-  const saving = request(a, 'world:save');
+  // Disconnect deliberately rejects an outstanding acknowledgement. Handle it immediately:
+  // a remote database can still be writing when the client closes its socket.
+  const saving = request(a, 'world:save').catch(() => {});
   await new Promise(resolve => setTimeout(resolve, 5));
-  a.disconnect(); b.disconnect(); await server.close(); await saving.catch(() => {});
+  a.disconnect(); b.disconnect(); await server.close(); await saving;
   const verified = await PostgresSaveStore.open(url);
   const saved = await verified.load(world.code); await verified.close();
   assert.equal(saved.players.find(player => player.id === hero.id).gold, 99);
