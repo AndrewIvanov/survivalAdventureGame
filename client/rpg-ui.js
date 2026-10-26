@@ -1,5 +1,6 @@
 import { CLASSES, ABILITIES, ATTRIBUTES, ITEMS, RARITIES, QUESTS, NPCS, INVENTORY_SIZE, itemStats, effectiveStats } from '../shared/rpg.js';
 import { distance, levelXp, inVillage } from '../shared/config.js';
+import { SURVIVAL } from '../shared/survival.js';
 
 export class RpgInterface {
   constructor(ui, { icon, escape }) {
@@ -62,10 +63,10 @@ export class RpgInterface {
     if (!this.portraitCache.has(key)) this.portraitCache.set(key, `url("${this.ui.scene.textures.get(key).getSourceImage().toDataURL()}")`);
     return this.portraitCache.get(key);
   }
-  handles(type) { return ['hero', 'inventory', 'character', 'journal', 'npc', 'class'].includes(type); }
+  handles(type) { return ['hero', 'inventory', 'character', 'journal', 'npc', 'class', 'shrine'].includes(type); }
   async perform(action) {
-    try { await this.net.action(action); }
-    catch (error) { this.ui.toast(error.message, 'error'); }
+    try { await this.net.action(action); return true; }
+    catch (error) { this.ui.toast(error.message, 'error'); return false; }
   }
   usePotion() {
     const item = this.me()?.inventory.find(i => i.baseId === 'health');
@@ -77,6 +78,7 @@ export class RpgInterface {
       ...NPCS.map(n => ({ ...n, kind: 'npc', label: n.name, range: 100 })),
       ...(this.ui.state.loot || []).map(l => ({ ...l, kind: 'loot', label: ITEMS[l.item.baseId].name, range: 80 })),
       ...(this.ui.state.chests || []).filter(c => !c.claimedBy.includes(me.id)).map(c => ({ ...c, kind: 'chest', label: c.supply ? 'Ящик припасов' : 'Лесной тайник', range: 80 })),
+      { ...SURVIVAL.shrine, kind: 'shrine', label: SURVIVAL.shrine.name, range: 95 },
     ];
     return choices.filter(o => distance(o, me) < o.range).sort((a, b) => distance(a, me) - distance(b, me))[0];
   }
@@ -86,6 +88,7 @@ export class RpgInterface {
     if (object.kind === 'npc') { this.npcId = object.id; this.open('npc'); }
     if (object.kind === 'loot') this.perform({ type: 'pickup', lootId: object.id });
     if (object.kind === 'chest') this.perform({ type: 'chest', chestId: object.id });
+    if (object.kind === 'shrine') this.open('shrine');
   }
   render(state, me) {
     if (!me.inventory) return;
@@ -131,23 +134,25 @@ export class RpgInterface {
   refreshPanel(me) {
     if (!me) return;
     const type = this.ui.panel;
-    const signature = JSON.stringify([type, this.npcId, this.selectedItem, me.inventory, me.equipment, me.gold, me.quests, me.classId, me.classChosen, me.attributes, me.statPoints, me.skillPoints, me.abilityRanks, me.level]);
+    const signature = JSON.stringify([type, this.npcId, this.selectedItem, me.inventory, me.equipment, me.gold, me.quests, me.classId, me.classChosen, me.attributes, me.statPoints, me.skillPoints, me.abilityRanks, me.level, type === 'npc' && this.npcId === 'elder' ? this.ui.state.village?.hp : null, this.ui.state.survival?.wave?.status, this.ui.state.survival?.guardianDefeated, this.ui.state.survival?.guardianActive]);
     if (signature === this.signature) return;
     this.signature = signature;
-    const title = { inventory: 'Всё, что вы несёте', character: 'Ваше призвание', journal: 'Истории забытых земель', npc: NPCS.find(n => n.id === this.npcId)?.name, class: 'Выберите своё призвание' }[type];
+    const title = { inventory: 'Всё, что вы несёте', character: 'Ваше призвание', journal: 'Истории забытых земель', npc: NPCS.find(n => n.id === this.npcId)?.name, class: 'Выберите своё призвание', shrine: 'Шёпот древнего леса' }[type];
     let content = '';
     if (type === 'inventory') content = this.inventory(me);
     if (type === 'character') content = this.character(me);
     if (type === 'journal') content = this.journal(me);
     if (type === 'class') content = this.classes(me);
     if (type === 'npc') content = this.npc(me);
+    if (type === 'shrine') content = `<div class="shrine-emblem">${this.icon('tree')}</div><p class="muted">Камень хранит дыхание Лесного стража. Пробудите его, когда будете готовы к бою. Лучше взять напарника и зелья.</p><div class="help-tip">Три фазы, удары по области и призыв монстров. Отходите из красных кругов; Space даёт короткую неуязвимость. Каждый участник получает личное эпическое оружие.</div>${this.button(this.ui.state.survival?.guardianDefeated ? 'Страж уже повержен' : this.ui.state.survival?.guardianActive ? 'Страж уже пробуждён' : 'Пробудить Лесного стража', { type: 'boss:summon' }, 'primary-button', this.ui.state.survival?.guardianDefeated || this.ui.state.survival?.guardianActive)}<p class="panel-footnote">Страж алтаря побеждается один раз в этом мире. В каждой пятой ночной волне появляется новый усиленный Страж.</p>`;
     this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · RPG</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${['inventory', 'character', 'journal'].includes(type) ? `<div class="rpg-tabs"><button data-panel="inventory" class="${type === 'inventory' ? 'active' : ''}">Рюкзак · I</button><button data-panel="character" class="${type === 'character' ? 'active' : ''}">Герой · C</button><button data-panel="journal" class="${type === 'journal' ? 'active' : ''}">Задания · J</button></div>` : ''}${content}`;
     this.ui.$('close-modal').onclick = () => this.ui.closePanel();
     this.ui.$('modal').querySelectorAll('[data-panel]').forEach(b => b.onclick = () => this.open(b.dataset.panel));
     this.ui.$('modal').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { this.selectedItem = b.dataset.item; this.refreshPanel(me); });
     this.ui.$('modal').querySelectorAll('[data-action]').forEach(b => b.onclick = async () => {
       const action = JSON.parse(b.dataset.action); b.disabled = true;
-      await this.perform(action);
+      const succeeded = await this.perform(action);
+      if (succeeded && action.type === 'boss:summon') this.ui.closePanel();
       if (b.isConnected) b.disabled = false;
     });
   }
@@ -180,7 +185,7 @@ export class RpgInterface {
   }
   journal(me) {
     const accepted = Object.keys(me.quests);
-    return `<p class="muted">Прогресс личный. Совместные победы поблизости засчитываются обоим героям, если задание принято.</p>${accepted.length ? accepted.map(id => this.questCard(me, id)).join('') : '<div class="journal-empty">Первые истории ждут вас в деревне.<br>Поговорите со старостой возле фонтана — F.</div>'}<div class="panel-footnote">В деревне доступны 4 задания. Сдавайте выполненные задания тому, кто их выдал.</div>`;
+    return `<p class="muted">Прогресс личный. Совместные победы поблизости засчитываются обоим героям, если задание принято.</p>${accepted.length ? accepted.map(id => this.questCard(me, id)).join('') : '<div class="journal-empty">Первые истории ждут вас в деревне.<br>Поговорите со старостой возле фонтана — F.</div>'}<div class="panel-footnote">В деревне доступны ${Object.keys(QUESTS).length} заданий. Сдавайте выполненные задания тому, кто их выдал.</div>`;
   }
   classes(me) {
     return `<p class="muted">Призвание выбирается один раз в деревне. Уровень, золото и прежний прогресс сохранятся.${!inVillage(me) ? '<br>Сначала вернитесь в безопасную деревню.' : ''}</p><div class="class-cards">${Object.entries(CLASSES).map(([id, c]) => `<article><div class="class-emblem" style="color:${c.color}">${this.icon(id === 'warrior' ? 'shield' : id === 'mage' ? 'bolt' : 'arrow')}</div><h3>${c.name}</h3><small>${c.subtitle}</small><p>${c.description}</p><div class="class-base">${c.hp} HP · ${c.mana} энергии</div>${this.button(`Выбрать: ${c.name}`, { type: 'class', classId: id }, 'primary-button', me.classChosen || !inVillage(me))}</article>`).join('')}</div>`;
@@ -188,6 +193,10 @@ export class RpgInterface {
   npc(me) {
     const npc = NPCS.find(n => n.id === this.npcId); if (!npc) return '';
     let body = Object.entries(QUESTS).filter(([, q]) => q.npc === npc.id).map(([id]) => this.questCard(me, id, npc)).join('');
+    if (npc.id === 'elder' && this.ui.state.village) {
+      const village = this.ui.state.village;
+      body += `<div class="smith-upgrade"><h3>Защита деревни</h3><p class="muted">${Math.ceil(village.hp)} / ${village.maxHp}. Ремонт добавляет 150 защиты.</p>${this.button('Восстановить · 15 золота', { type: 'village:repair', npcId: npc.id }, 'secondary-button', village.hp >= village.maxHp || me.gold < 15 || this.ui.state.survival?.wave?.status === 'active')}</div>`;
+    }
     const stock = npc.id === 'merchant' ? ['health', 'mana', 'armor', 'ring'] : npc.id === 'smith' ? [CLASSES[me.classId].weapon, 'armor'] : [];
     body += stock.length ? `<div class="field-label shop-gold">ВАШ КОШЕЛЁК · ${me.gold} ЗОЛОТА</div><div class="shop-list">${stock.map(id => `<div>${this.icon(ITEMS[id].icon)}<span><strong>${ITEMS[id].name}</strong><small>${ITEMS[id].price} золота</small></span>${this.button('Купить', { type: 'buy', npcId: npc.id, baseId: id }, 'shop-buy', me.gold < ITEMS[id].price)}</div>`).join('')}</div>` : '';
     if (npc.id === 'smith') {

@@ -51,6 +51,8 @@ export const QUESTS = {
   wolves: { name: 'Серые у тропы', npc: 'hunter', description: 'Победите 5 волков. Засчитываются совместные победы поблизости.', kind: 'wolf', target: 5, xp: 100, gold: 35, reward: 'armor' },
   goblins: { name: 'Незваные соседи', npc: 'hunter', description: 'Победите 4 гоблинов в лесу.', kind: 'goblin', target: 4, xp: 140, gold: 50, reward: 'ring' },
   supplies: { name: 'Потерянный караван', npc: 'elder', description: 'Найдите 3 ящика припасов вдоль лесных дорог и вернитесь к старосте.', kind: 'supplies', target: 3, xp: 90, gold: 30, reward: 'mana' },
+  defense: { name: 'До первого света', npc: 'elder', description: 'Защитите деревню во время ночного нападения: уничтожьте волну или сохраните её защиту до рассвета.', kind: 'defense', target: 1, xp: 150, gold: 50, reward: 'health' },
+  guardian: { name: 'Сердце древнего леса', npc: 'hunter', description: 'Пробудите Стража у алтаря на восточной поляне и победите его. Босс пятой ночи тоже засчитывается.', kind: 'guardian', target: 1, xp: 250, gold: 75, reward: 'ring', rarity: 'rare' },
 };
 export const CHESTS = [
   { id: 'supply-east', x: 2180, y: 1146, supply: true },

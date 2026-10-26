@@ -2,36 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { PLAYER, MONSTERS, distance } from '../shared/config.js';
 import { effectiveStats, CLASSES } from '../shared/rpg.js';
 import { canStand } from '../shared/map.js';
-import { grantExperience } from './progression.js';
-import { makeItem } from './inventory.js';
-import { progressQuests } from './quests.js';
+import { rewardKill } from './rewards.js';
 
 export function damageMonster(world, player, monster, amount, { critical = false, knockback = 0 } = {}) {
   if (monster.hp <= 0) return;
   const damage = Math.max(1, Math.round(amount));
   monster.hp = Math.max(0, monster.hp - damage);
   monster.hurtUntil = world.elapsed + 250; monster.targetId = player.id;
-  if (knockback) {
+  if (knockback && monster.kind !== 'guardian') {
     const angle = Math.atan2(monster.y - player.y, monster.x - player.x);
     world.move(monster, Math.cos(angle) * knockback, Math.sin(angle) * knockback);
   }
   world.events.push({ type: 'hit', id: monster.id, x: monster.x, y: monster.y - 25, damage, critical });
   if (monster.hp > 0) return;
   monster.respawnAt = world.elapsed + 45000; monster.state = 'dead'; world.kills++;
-  const config = MONSTERS[monster.kind];
-  for (const ally of world.players.values()) {
-    if (!ally.online || ally.hp <= 0 || distance(ally, monster) > 600) continue;
-    grantExperience(world, ally, config.xp); ally.gold += config.gold; ally.kills++;
-    progressQuests(world, ally, monster.kind);
-  }
-  if (world.loot.length < 128) {
-    const roll = world.random();
-    const rarity = roll < .015 ? 'legendary' : roll < .06 ? 'epic' : roll < .2 ? 'rare' : roll < .5 ? 'uncommon' : 'common';
-    const baseId = world.random() < .3 ? CLASSES[player.classId || 'warrior'].weapon : world.random() < .35 ? 'health' : monster.kind === 'wolf' ? 'hide' : 'ore';
-    world.loot.push({ id: randomUUID(), x: monster.x, y: monster.y, item: makeItem(baseId, rarity), expiresAt: world.elapsed + 600000 });
-  }
-  world.events.push({ type: 'kill', id: monster.id, x: monster.x, y: monster.y, xp: config.xp, gold: config.gold });
-  world.criticalSave = true;
+  rewardKill(world, player, monster);
 }
 
 export function lineClear(world, from, to) {
@@ -43,7 +28,7 @@ export function lineClear(world, from, to) {
 export function melee(world, player, multiplier = 1, radius = PLAYER.reach, fullCircle = false) {
   const stats = effectiveStats(player);
   for (const monster of world.monsters) {
-    if (monster.hp <= 0 || distance(player, monster) > radius || !lineClear(world, player, monster)) continue;
+    if (monster.hp <= 0 || distance(player, monster) > radius + (monster.kind === 'guardian' ? 20 : 0) || !lineClear(world, player, monster)) continue;
     const angle = Math.atan2(monster.y - player.y, monster.x - player.x);
     if (!fullCircle && Math.cos(angle - player.angle) < .18) continue;
     const critical = world.random() < stats.critical;
@@ -80,7 +65,7 @@ export function updateProjectiles(world, dt) {
       p.x += Math.cos(p.angle) * length / steps; p.y += Math.sin(p.angle) * length / steps; p.remaining -= length / steps;
       if (!canStand(p.x, p.y, world.grid, 3)) { active = false; break; }
       for (const m of world.monsters) {
-        if (m.hp <= 0 || p.hit.includes(m.id) || distance(p, m) > p.radius + 9) continue;
+        if (m.hp <= 0 || p.hit.includes(m.id) || distance(p, m) > p.radius + (m.kind === 'guardian' ? 30 : 9)) continue;
         p.hit.push(m.id);
         const critical = world.random() < effectiveStats(owner).critical;
         damageMonster(world, owner, m, p.damage * (critical ? 1.75 : 1), { critical, knockback: 6 });
@@ -95,9 +80,13 @@ export function updateProjectiles(world, dt) {
 }
 
 export function hurtPlayer(world, monster, player) {
+  damagePlayer(world, monster, player, monster.damage || MONSTERS[monster.kind].damage);
+}
+
+export function damagePlayer(world, monster, player, amount) {
   if (player.hp <= 0 || world.elapsed < player.invulnerableUntil) return;
   const armor = effectiveStats(player).armor + (player.guardUntil > world.elapsed ? 10 + (player.abilityRanks.r - 1) * 4 : 0);
-  const damage = Math.max(1, MONSTERS[monster.kind].damage - armor);
+  const damage = Math.max(1, Math.round(amount - armor));
   player.hp = Math.max(0, player.hp - damage); player.lastHurt = world.elapsed;
   world.events.push({ type: 'hurt', id: player.id, x: player.x, y: player.y - 26, damage });
   if (player.hp === 0) {

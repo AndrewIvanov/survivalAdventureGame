@@ -47,8 +47,8 @@ export class Network extends EventTarget {
         else if (!result?.ok) reject(new Error(result?.error || 'Не удалось выполнить запрос.'));
         else resolve(result);
       };
-      if (data === undefined) this.socket.timeout(7000).emit(event, callback);
-      else this.socket.timeout(7000).emit(event, data, callback);
+      if (data === undefined) this.socket.timeout(20000).emit(event, callback);
+      else this.socket.timeout(20000).emit(event, data, callback);
     });
   }
   async enter(data) {

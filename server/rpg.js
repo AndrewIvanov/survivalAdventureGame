@@ -2,6 +2,7 @@ import { ATTRIBUTES, CLASSES, ITEMS, NPCS, CHESTS, ABILITIES, effectiveStats } f
 import { distance, inVillage } from '../shared/config.js';
 import { addItem, makeItem, inventoryAction, consumeItem, refreshStats } from './inventory.js';
 import { questAction, progressQuests } from './quests.js';
+import { summonGuardian } from './boss.js';
 
 export function nearbyNpc(player, npcId) {
   const npc = NPCS.find(n => n.id === npcId);
@@ -31,7 +32,10 @@ export function rpgAction(world, player, action) {
   } else if (action.type === 'pickup') {
     const loot = world.loot.find(l => l.id === action.lootId);
     if (!loot || distance(player, loot) > 85) throw new Error('Добыча слишком далеко или уже подобрана.');
+    if (loot.ownerId && loot.ownerId !== player.id) throw new Error('Эта награда предназначена напарнику.');
     addItem(player, loot.item); world.loot = world.loot.filter(l => l.id !== loot.id);
+  } else if (action.type === 'boss:summon') {
+    summonGuardian(world, player);
   } else if (action.type === 'chest') {
     const chest = world.chests.find(c => c.id === action.chestId);
     if (!chest || distance(player, chest) > 85) throw new Error('Подойдите ближе к сундуку.');
@@ -41,7 +45,14 @@ export function rpgAction(world, player, action) {
     if (chest.supply) { player.supplies.push(chest.id); progressQuests(world, player, 'supplies'); }
   } else {
     const npc = nearbyNpc(player, action.npcId);
-    if (['quest:accept', 'quest:claim'].includes(action.type)) questAction(world, player, action, npc);
+    if (action.type === 'village:repair') {
+      if (npc.id !== 'elder') throw new Error('Восстановление организует староста.');
+      if (world.survival.wave?.status === 'active') throw new Error('Сначала отбейте нападение.');
+      if (world.village.hp >= world.village.maxHp) throw new Error('Защита деревни уже восстановлена.');
+      if (player.gold < 15) throw new Error('На ремонт нужно 15 золота.');
+      player.gold -= 15; world.village.hp = Math.min(world.village.maxHp, world.village.hp + 150);
+    }
+    else if (['quest:accept', 'quest:claim'].includes(action.type)) questAction(world, player, action, npc);
     else if (action.type === 'buy') {
       const stock = npc.id === 'merchant' ? ['health', 'mana', 'armor', 'ring'] : npc.id === 'smith' ? [CLASSES[player.classId].weapon, 'armor'] : [];
       if (!stock.includes(action.baseId)) throw new Error('Житель не продаёт этот предмет.');

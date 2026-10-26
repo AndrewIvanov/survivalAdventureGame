@@ -1,9 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-
-const checksum = text => createHash('sha256').update(text).digest('hex');
+import { checksum, decodeSave, summarizeSave } from './save-format.js';
 
 export class SaveStore {
   constructor(filename) {
@@ -52,19 +50,14 @@ export class SaveStore {
   }
 
   decode(row) {
-    if (checksum(row.state) !== row.checksum) throw new Error('Save checksum mismatch');
-    const data = JSON.parse(row.state);
-    if (![1, 2].includes(data.version) || !Array.isArray(data.players) || !Array.isArray(data.monsters)) throw new Error('Unsupported save format');
-    return data;
+    return decodeSave(row);
   }
 
   list(playerId) {
     return this.db.prepare('SELECT code, saved_at FROM worlds ORDER BY saved_at DESC').all().flatMap(row => {
       try {
         const state = this.load(row.code);
-        if (!state.players.some(p => p.id === playerId)) return [];
-        const player = state.players.find(p => p.id === playerId);
-        return [{ id: state.id, code: state.code, name: state.name, level: player.level, savedAt: row.saved_at, members: state.players.length }];
+        return summarizeSave(state, playerId, row.saved_at);
       } catch { return []; }
     });
   }

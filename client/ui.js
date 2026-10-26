@@ -1,6 +1,7 @@
 import { WORLD, PLAYER, inVillage, levelXp } from '../shared/config.js';
 import { heroToken } from './network.js';
 import { RpgInterface } from './rpg-ui.js';
+import { SurvivalInterface } from './survival-ui.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
@@ -31,7 +32,7 @@ export class Interface {
   constructor(network, scene, game) {
     this.net = network; this.scene = scene; this.game = game; this.appearance = 'ranger'; this.mode = 'create'; this.panel = null;
     this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null;
-    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.bind();
+    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.bind();
   }
   mount() {
     document.querySelector('#app').innerHTML = `
@@ -125,6 +126,7 @@ export class Interface {
     this.net.on('effects', events => {
       for (const e of events) {
         if (e.type === 'discover' && e.id === this.net.playerId) {
+          if (this.$('survival-banner') && !this.$('survival-banner').hidden) { this.toast(`Открыт Тёмный лес · +${e.xp} опыта`); continue; }
           this.$('discovery').hidden = false; clearTimeout(this.discoveryTimer);
           this.discoveryTimer = setTimeout(() => { this.$('discovery').hidden = true; }, 4500);
         }
@@ -201,6 +203,7 @@ export class Interface {
     this.drawMap(this.$('minimap'), false);
     if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
     this.rpg.render(state, me);
+    this.survival.render(state, me);
   }
   drawMap(canvas, full) {
     if (!canvas || !this.state) return;
@@ -215,6 +218,7 @@ export class Interface {
     c.fillStyle = '#b39a68';
     for (const b of this.scene.map?.buildings || []) c.fillRect((b.x - 55) * sx, (b.y - 60) * sy, 110 * sx, 65 * sy);
     c.fillStyle = '#99bfc0'; c.fillRect(1513 * sx, 1130 * sy, 46 * sx, 46 * sy);
+    this.survival.markMap(c, sx, sy, full, this.state);
     for (const m of this.state.monsters) {
       c.fillStyle = '#bc775c'; c.beginPath(); c.arc(m.x * sx, m.y * sy, full ? 3 : 1.5, 0, Math.PI * 2); c.fill();
     }

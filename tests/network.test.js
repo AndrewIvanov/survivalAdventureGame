@@ -7,6 +7,8 @@ import path from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { createGameServer } from '../server/index.js';
+import { SURVIVAL, CYCLE_MS } from '../shared/survival.js';
+import { damageMonster } from '../server/combat.js';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const request = (socket, event, data) => new Promise((resolve, reject) => {
@@ -171,4 +173,44 @@ test('RPG protocol: mixed classes, projectile damage, cooperative quest progress
   } finally {
     a?.disconnect(); b?.disconnect(); await server?.close(); await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('survival protocol synchronizes fifth-night boss, clock, village damage, reconnect and restart', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'village-night-'));
+  const database = path.join(directory, 'survival.sqlite');
+  let server, a, b;
+  try {
+    server = await createGameServer({ database }); let { port } = await server.listen(0, '127.0.0.1');
+    a = await connect(port, 'u'); b = await connect(port, 'v');
+    const created = await request(a, 'world:enter', { mode: 'create', name: 'Защитник' });
+    const joined = await request(b, 'world:enter', { mode: 'join', name: 'Друг', code: created.state.code });
+    const world = server.worlds.get(created.state.id);
+    let sa, sb; a.on('state', s => { sa = s; }); b.on('state', s => { sb = s; });
+    world.survival.clockMs = 4 * CYCLE_MS + SURVIVAL.dayMs - 50;
+    await waitUntil(() => sa?.survival.phase === 'night' && sb?.survival.wave.bossSpawned);
+    assert.equal(sa.survival.nightNumber, 5); assert.equal(sa.survival.wave.id, sb.survival.wave.id);
+    const boss = world.monsters.find(m => m.kind === 'guardian');
+    assert.ok(sa.monsters.some(m => m.id === boss.id)); assert.ok(sb.monsters.some(m => m.id === boss.id));
+    world.village.hp = 700;
+    const pa = world.players.get(created.playerId), pb = world.players.get(joined.playerId);
+    pa.x = boss.x - 40; pa.y = boss.y; pb.x = boss.x + 40; pb.y = boss.y;
+    boss.nextSpecialAt = world.elapsed + 60000;
+    damageMonster(world, pa, boss, 60);
+    await waitUntil(() => sa?.village.hp === 700 && sb?.monsters.some(m => m.id === boss.id && m.hp < m.maxHp));
+    const waveId = world.survival.wave.id;
+    a.disconnect(); const before = world.survival.clockMs; await delay(150); assert.ok(world.survival.clockMs > before);
+    a = await connect(port, 'u');
+    const reconnect = await request(a, 'world:enter', { mode: 'join', code: world.code, name: 'Защитник' });
+    assert.equal(reconnect.state.survival.wave.id, waveId); assert.equal(reconnect.state.village.hp, 700);
+    a.disconnect(); b.disconnect(); await delay(100);
+    const paused = world.survival.clockMs, spawned = world.survival.wave.spawned;
+    await delay(100); assert.equal(world.survival.clockMs, paused);
+    await server.close();
+    server = await createGameServer({ database }); ({ port } = await server.listen(0, '127.0.0.1'));
+    a = await connect(port, 'u');
+    const restored = await request(a, 'world:enter', { mode: 'join', code: world.code, name: 'Защитник' });
+    assert.equal(restored.state.survival.clockMs, paused); assert.equal(restored.state.survival.wave.id, waveId);
+    assert.equal(restored.state.survival.wave.spawned, spawned); assert.equal(restored.state.village.hp, 700);
+    assert.equal(server.worlds.get(world.id).monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
+  } finally { a?.disconnect(); b?.disconnect(); await server?.close(); await rm(directory, { recursive: true, force: true }); }
 });

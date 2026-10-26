@@ -21,7 +21,7 @@ export function questAction(world, player, action, npc) {
   } else {
     if (state?.status !== 'active' || state.progress < quest.target) throw new Error('Задание ещё не выполнено или награда уже получена.');
     // Check inventory capacity before gold/XP/status change: rewards are all-or-nothing.
-    addItem(player, makeItem(quest.reward, ['armor', 'ring'].includes(quest.reward) ? 'uncommon' : 'common'));
+    addItem(player, makeItem(quest.reward, quest.rarity || (['armor', 'ring'].includes(quest.reward) ? 'uncommon' : 'common')));
     state.status = 'completed'; player.gold += quest.gold; grantExperience(world, player, quest.xp);
     world.events.push({ type: 'quest-complete', id: player.id, name: quest.name });
   }

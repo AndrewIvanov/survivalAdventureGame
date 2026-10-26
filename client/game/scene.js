@@ -4,6 +4,8 @@ import { createMap, seeded } from '../../shared/map.js';
 import { createTextures, createGround } from './textures.js';
 import { createRpgTextures } from './rpg-art.js';
 import { NPCS, RARITIES, ITEMS, CLASSES, ABILITIES } from '../../shared/rpg.js';
+import { MONSTERS } from '../../shared/config.js';
+import { SurvivalScene } from './survival-scene.js';
 
 export class WorldScene extends Phaser.Scene {
   constructor(network) {
@@ -13,6 +15,7 @@ export class WorldScene extends Phaser.Scene {
   create() {
     this.map = createMap();
     createTextures(this); createRpgTextures(this); createGround(this, this.map);
+    this.survivalScene = new SurvivalScene(this); this.survivalScene.create();
     this.rpgViews = new Map();
     this.zoneGraphics = this.add.graphics().setDepth(9000);
     this.add.image(0, 0, 'ground').setOrigin(0).setDepth(-1000);
@@ -78,13 +81,15 @@ export class WorldScene extends Phaser.Scene {
     this.entities.clear(); this.pausedInput = true;
     for (const view of this.rpgViews?.values() || []) view.destroy();
     this.rpgViews?.clear(); this.zoneGraphics?.clear();
+    this.survivalScene?.reset();
     this.cameraTarget.set(1536, 1140);
   }
   makeView(data, player) {
     const shadow = this.add.ellipse(0, 1, player ? 29 : 37, 11, 0x15261c, .4);
     const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player);
     const sprite = this.add.sprite(0, 0, player ? `class-${data.classId || 'warrior'}-${data.appearance}-0` : data.kind).setOrigin(.5, .92);
-    const label = this.add.text(0, player ? -55 : -48, player ? data.name : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#b8d5e0', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
+    const label = this.add.text(0, player ? -55 : data.kind === 'guardian' ? -158 : -48, player ? data.name : data.kind === 'guardian' ? MONSTERS.guardian.name : data.elite ? '★ Усиленный' : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#d4cca3', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
+    if (data.elite) sprite.setTint(0xc7b1dd);
     const health = this.add.graphics();
     const container = this.add.container(data.x, data.y, [shadow, ring, sprite, label, health]);
     return { container, sprite, health, label, ring, data, player, lastX: data.x, lastY: data.y };
@@ -101,9 +106,9 @@ export class WorldScene extends Phaser.Scene {
       view.container.setAlpha(data.hp <= 0 ? .35 : 1);
       view.health.clear();
       if (data.hp < data.maxHp && data.hp > 0) {
-        const y = player ? -46 : -39;
-        view.health.fillStyle(0x17251e, .9).fillRect(-18, y, 36, 5);
-        view.health.fillStyle(player ? 0x87ab6c : 0xbb745d).fillRect(-17, y + 1, 34 * data.hp / data.maxHp, 3);
+        const y = player ? -46 : data.kind === 'guardian' ? -146 : -39, width = data.kind === 'guardian' ? 84 : 36;
+        view.health.fillStyle(0x17251e, .9).fillRect(-width / 2, y, width, 5);
+        view.health.fillStyle(player ? 0x87ab6c : 0xbb745d).fillRect(-width / 2 + 1, y + 1, (width - 2) * data.hp / data.maxHp, 3);
       }
     }
     for (const [id, view] of this.entities) if (!visible.has(id)) {
@@ -111,6 +116,7 @@ export class WorldScene extends Phaser.Scene {
       this.entities.delete(id);
     }
     this.syncRpg(state);
+    this.survivalScene.sync(state);
   }
   syncRpg(state) {
     const ids = new Set();
@@ -148,6 +154,7 @@ export class WorldScene extends Phaser.Scene {
   }
   update(time, delta) {
     if (!this.cameraTarget) return;
+    this.survivalScene?.update(time, delta);
     const me = this.entities.get(this.network.playerId);
     const factor = 1 - Math.exp(-delta / 65);
     for (const view of this.rpgViews.values()) if (view.projectileData) {
@@ -187,6 +194,7 @@ export class WorldScene extends Phaser.Scene {
   }
   effects(events) {
     if (!this.sys.isActive()) return;
+    this.survivalScene?.effects(events);
     for (const event of events) {
       const view = this.entities.get(event.id);
       if (event.type === 'attack') {
@@ -199,7 +207,7 @@ export class WorldScene extends Phaser.Scene {
         this.floatText(event.x, event.y, event.critical ? `${event.damage}!` : `−${event.damage}`, event.type === 'hurt' ? '#f0a58c' : event.critical ? '#f3d17f' : '#f0e9cc', event.critical ? 21 : 16);
         if (view) {
           view.sprite.setTintFill(0xf6e6bf);
-          this.time.delayedCall(90, () => { if (view.sprite.active) view.sprite.clearTint(); });
+          this.time.delayedCall(90, () => { if (view.sprite.active) view.data.elite ? view.sprite.setTint(0xc7b1dd) : view.sprite.clearTint(); });
         }
         if (event.id === this.network.playerId && this.effectsEnabled) this.cameras.main.shake(90, .002);
       }
