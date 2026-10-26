@@ -4,9 +4,16 @@ import { RpgInterface } from './rpg-ui.js';
 import { SurvivalInterface } from './survival-ui.js';
 import { ChatInterface } from './chat-ui.js';
 import { REVIVAL } from '../shared/revival.js';
+import { ProgressionInterface } from './progression-ui.js';
+import { MINE } from '../shared/crafting.js';
+import { NPCS } from '../shared/rpg.js';
+import { NoticeGate, noticeKey } from './notices.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
+  axe: '<path d="m5 22 12-18m-5 1 5-3 5 7-6 4-5-5"/>',
+  pickaxe: '<path d="m4 22 11-14M4 7c5-7 13-7 18 1L13 5Z"/>',
+  box: '<path d="m3 7 9-5 9 5v12l-9 3-9-3Zm0 0 9 5 9-5M12 12v10M7 4l10 6"/>',
   sword: '<path d="m15 3 6-1-1 6-10 10-4-4Z"/><path d="m3 12 9 9M2 22l5-5"/>',
   compass: '<circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5Z"/>',
   map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2ZM9 3v16m6-14v16"/>',
@@ -37,7 +44,7 @@ export class Interface {
   constructor(network, scene, game) {
     this.net = network; this.scene = scene; this.game = game; this.appearance = 'ranger'; this.mode = 'create'; this.panel = null;
     this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null;
-    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.chat = new ChatInterface(this, { icon }); this.bind();
+    this.mount(); this.notices = new NoticeGate(this); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.chat = new ChatInterface(this, { icon }); this.progression = new ProgressionInterface(this, { icon, escape }); this.bind();
   }
   mount() {
     document.querySelector('#app').innerHTML = `
@@ -100,6 +107,7 @@ export class Interface {
     this.$('modal-backdrop').addEventListener('click', event => { if (event.target === this.$('modal-backdrop')) this.closePanel(); });
     document.addEventListener('keydown', event => {
       if (event.code === 'Escape' && event.repeat) return;
+      if (event.code === 'Escape' && this.scene.buildMode) { event.preventDefault(); this.scene.buildMode = false; this.$('build-hint').hidden = true; return; }
       if (event.code === 'Escape' && !this.$('chat-body').hidden && !this.panel && !this.state?.gameOver) {
         event.preventDefault(); this.chat.setOpen(false); return;
       }
@@ -144,6 +152,7 @@ export class Interface {
     this.net.on('effects', events => {
       for (const e of events) {
         if (e.type === 'discover' && e.id === this.net.playerId) {
+          if (!this.notices.take('discovery')) continue;
           if (this.$('survival-banner') && !this.$('survival-banner').hidden) { this.toast(`Открыт Тёмный лес · +${e.xp} опыта`); continue; }
           this.$('discovery').hidden = false; clearTimeout(this.discoveryTimer);
           this.discoveryTimer = setTimeout(() => { this.$('discovery').hidden = true; }, 4500);
@@ -229,6 +238,7 @@ export class Interface {
     if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
     if (!state.gameOver) this.rpg.render(state, me);
     this.survival.render(state, me);
+    this.progression.render(state, me);
   }
   drawMap(canvas, full) {
     if (!canvas || !this.state) return;
@@ -253,6 +263,12 @@ export class Interface {
       c.fillRect(grave.x * sx - size / 2, grave.y * sy - size, size, size * 1.4);
     }
     this.survival.markMap(c, sx, sy, full, this.state);
+    c.fillStyle = '#a8bada'; c.fillRect(MINE.x * sx - 4, MINE.y * sy - 4, 8, 8);
+    const sawmill = NPCS.find(n => n.id === 'lumberjack');
+    c.fillStyle = '#d4bc80'; c.fillRect(sawmill.x * sx - 3, sawmill.y * sy - 3, 6, 6);
+    if (full) { c.font = '11px Georgia'; c.textAlign = 'center'; c.fillStyle = '#d5dfde'; c.fillText('ШАХТА · РУДА', MINE.x * sx, MINE.y * sy - 15); c.fillStyle = '#dbc895'; c.fillText('ЛЕСОПИЛКА', sawmill.x * sx, sawmill.y * sy + 18); }
+    c.fillStyle = '#b5a36f';
+    for (const fence of this.state.structures || []) c.fillRect(fence.x * sx - 2, fence.y * sy - 2, full ? 5 : 3, full ? 5 : 3);
     for (const m of this.state.monsters) {
       c.fillStyle = '#bc775c'; c.beginPath(); c.arc(m.x * sx, m.y * sy, full ? 3 : 1.5, 0, Math.PI * 2); c.fill();
     }
@@ -274,6 +290,8 @@ export class Interface {
     for (let y = 0; y < height; y += height / 6) { c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke(); }
   }
   openPanel(type) {
+    this.scene.buildMode = false;
+    if (this.progression?.handles(type)) return this.progression.open(type);
     if (this.rpg.handles(type)) return this.rpg.open(type);
     this.modalReturnFocus = document.activeElement;
     this.panel = type; this.scene.pausedInput = true;
@@ -283,7 +301,7 @@ export class Interface {
     const body = {
       map: `<p class="muted">Забытые земли · Деревня и Тёмный лес</p><canvas id="world-map" width="768" height="518"></canvas><div class="map-legend"><span><i class="legend-dot hero-dot"></i>Вы</span><span><i class="legend-dot ally-dot"></i>Напарник</span><span><i class="legend-dot enemy-dot"></i>Противник</span><span>Двигайтесь по тропам. В деревне безопасно.</span></div>`,
       settings: `<p class="muted">Мир продолжает жить, пока вы открываете меню.<br>Для отдыха вернитесь в безопасную деревню.</p><div class="settings-row"><label for="effects-toggle">Эффекты и встряска камеры</label><input id="effects-toggle" type="checkbox" ${this.scene.effectsEnabled ? 'checked' : ''}></div><button id="save-now" class="secondary-button">${icon('save')} Сохранить сейчас</button><button id="backup-key" class="secondary-button">${icon('copy')} Скопировать ключ героя</button><p class="panel-footnote">Ключ возвращает вашего героя на другом компьютере. Храните его у себя и не отправляйте другим игрокам.</p><button id="resume-button" class="primary-button">Продолжить путешествие ${icon('arrow')}</button><button id="leave-world" class="text-button">${icon('door')} Сохранить и выйти в меню</button>`,
-      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R</kbd> Способности в сторону курсора</span><span><kbd>F</kbd> NPC, добыча, сундуки</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
+      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R / T</kbd> Навыки / навык профессии</span><span><kbd>+</kbd> Улучшение над панелью боя · Shift + клик: до 10 рангов</span><span><kbd>B</kbd> Строить забор из ящиков · ЛКМ поставить</span><span><kbd>P</kbd> Профессия с 10 уровня</span><span><kbd>F</kbd> Добыча дерева и руды, забор, надгробие, NPC</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
       restore: `<p class="muted">Введите сохранённый ключ героя, чтобы открыть его миры на этом устройстве.</p><form id="restore-form"><label class="field-label" for="restore-input">ЛИЧНЫЙ КЛЮЧ ГЕРОЯ</label><input id="restore-input" required minlength="32" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Вставьте ключ"><p class="panel-footnote">Текущий ключ будет заменён только в этом браузере. Если он нужен, сначала скопируйте его.</p><button type="button" id="copy-current-key" class="secondary-button">${icon('copy')} Скопировать текущий ключ</button><button type="submit" class="primary-button">Восстановить героя ${icon('arrow')}</button></form>`,
       forget: `<p class="muted"><b>${escape(this.forgetWorld?.name || '')} · ${escape(this.forgetWorld?.code || '')}</b></p><p class="panel-footnote">Путешествие исчезнет из вашего списка. Прогресс героев и доступ друга сохранятся. Чтобы вернуться, присоединитесь по коду <b>${escape(this.forgetWorld?.code || '')}</b>.</p><button id="confirm-forget" class="primary-button forget-confirm">${icon('trash')} Удалить из списка</button><button id="cancel-forget" class="secondary-button">Отмена</button>`,
     }[type];
@@ -338,7 +356,8 @@ export class Interface {
       this.toast(message);
     } catch { this.toast('Буфер обмена недоступен. Код мира можно выделить и скопировать вручную.', 'error'); }
   }
-  toast(message, type) {
+  toast(message, type, key = null) {
+    if (type !== 'error' && !this.notices.take(key || noticeKey(message))) return;
     const toast = document.createElement('div'); toast.className = `toast ${type === 'error' ? 'error' : ''}`;
     toast.innerHTML = `${icon(type === 'error' ? 'help' : 'check')}<span></span>`; toast.querySelector('span').textContent = message;
     this.$('toast-stack').append(toast); setTimeout(() => toast.remove(), 5200);

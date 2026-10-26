@@ -39,14 +39,14 @@ test('warning is emitted once; night starts exactly once; empty world pauses the
   world.tick(200); assert.equal(world.survival.clockMs, clock); assert.equal(world.elapsed, elapsed);
 });
 
-test('waves grow stronger, include night enemies, and every second night spawns one boss', () => {
+test('waves grow stronger, include night enemies, and every third night spawns one boss', () => {
   const { world } = setup(); night(world);
   const first = world.survival.wave.total, firstHp = world.monsters.find(m => m.raidNight === 1).maxHp;
   assert.ok(world.monsters.some(m => m.kind === 'nightstalker'));
-  night(world, 2);
+  night(world, 3);
   assert.equal(world.survival.wave.total, first); assert.equal(world.survival.wave.bossRequired, true);
   assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
-  assert.ok(world.monsters.find(m => m.raidNight === 2 && m.kind === 'wolf').maxHp > firstHp);
+  assert.ok(world.monsters.find(m => m.raidNight === 3 && m.kind === 'wolf').maxHp > firstHp);
   world.tick(.05); assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
 });
 
@@ -78,7 +78,7 @@ test('victory grants one shared reward and quest progress, with no duplicate aft
   night(world); world.survival.wave.spawned = world.survival.wave.total;
   for (const m of world.monsters.filter(m => m.raidId)) m.hp = 0;
   resolveWave(world); const gold = player.gold;
-  assert.equal(gold, 65); assert.equal(friend.gold, 65); assert.equal(player.quests.defense.progress, 1);
+  assert.equal(gold, 15); assert.equal(friend.gold, 15); assert.equal(player.quests.defense.progress, 1);
   resolveWave(world); assert.equal(player.gold, gold);
   const restored = new GameWorld(world.serialize()); restored.join('a', 'A', 'ranger');
   resolveWave(restored); assert.equal(restored.players.get('a').gold, gold); assert.deepEqual(restored.survival.defendedNights, [1]);
@@ -89,7 +89,7 @@ test('dawn retreats remaining enemies without death rewards and repairs some vil
   const kills = world.kills; world.survival.clockMs = CYCLE_MS - 50;
   world.tick(.05); assert.equal(world.survival.wave.status, 'survived');
   assert.ok(world.village.hp > 300); assert.equal(world.kills, kills);
-  assert.ok(!world.monsters.some(m => m.raidId && m.hp > 0)); assert.equal(player.gold, 65);
+  assert.ok(!world.monsters.some(m => m.raidId && m.hp > 0)); assert.equal(player.gold, 15);
 });
 
 test('falling village ends the raid without resetting heroes; repair validates NPC, money and wave', () => {
@@ -127,13 +127,13 @@ test('boss telegraphs damage after a delay; moving away and dash invulnerability
   world.elapsed = boss.telegraph.resolveAt; updateBosses(world, .05); assert.ok(player.hp < hp);
 });
 
-test('boss changes phases and summons bounded reinforcements', () => {
+test('boss changes phases without exceeding the fixed enemy budget', () => {
   const { world, player } = setup(); world.survival.clockMs = SURVIVAL.dayMs; player.x = 2180; player.y = 1152;
   const boss = spawnGuardian(world); boss.hp = boss.maxHp * .6; boss.nextSpecialAt = 999999;
   updateBosses(world, .05); assert.equal(boss.bossPhase, 2);
-  assert.ok(world.monsters.some(m => m.summonOwner === boss.id));
+  assert.ok(!world.monsters.some(m => m.summonOwner === boss.id));
   boss.hp = boss.maxHp * .25; updateBosses(world, .05); assert.equal(boss.bossPhase, 3);
-  assert.ok(world.monsters.filter(m => m.summonOwner === boss.id && m.hp > 0).length <= 5);
+  assert.ok(world.monsters.filter(m => m.summonOwner === boss.id && m.hp > 0).length === 0);
 });
 
 test('overlapping root warnings damage each hero once per boss attack', () => {
@@ -165,7 +165,7 @@ test('boss victory yields personal persistent epic weapons and cannot be duplica
 });
 
 test('SQLite restores clock, wave identity, pending boss attack and village health together', () => {
-  const { world, player } = setup(); night(world, 2); world.village.hp = 418;
+  const { world, player } = setup(); night(world, 3); world.village.hp = 418;
   const boss = world.monsters.find(m => m.kind === 'guardian'); boss.nextSpecialAt = 0; updateBosses(world, .05);
   const store = new SaveStore(':memory:'); store.save(world.serialize());
   const restored = new GameWorld(store.load(world.code));

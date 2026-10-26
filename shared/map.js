@@ -1,4 +1,5 @@
 import { WORLD, clamp } from './config.js';
+import { MINE } from './crafting.js';
 
 export function seeded(seed) {
   return () => {
@@ -17,6 +18,8 @@ export function createMap(seed = WORLD.seed) {
     { id: 'forge', name: 'Кузница', x: 1262, y: 1290, w: 118, h: 100, style: 'forge' },
     { id: 'shop', name: 'Торговая лавка', x: 1778, y: 1280, w: 116, h: 100, style: 'shop' },
     { id: 'cottage', name: 'Дом лесника', x: 1420, y: 820, w: 104, h: 94, style: 'cottage' },
+    { id: 'sawmill', name: 'Лесопилка', x: 1390, y: 1450, w: 144, h: 110, style: 'sawmill' },
+    { id: 'mine', name: MINE.name, x: MINE.x, y: MINE.y, w: 180, h: 100, style: 'mine' },
   ];
   const obstacles = buildings.map(b => ({ x: b.x - b.w * .43, y: b.y - 24, w: b.w * .86, h: 56, type: 'building' }));
   obstacles.push({ x: 1504, y: 1120, w: 64, h: 59, type: 'fountain' });
@@ -28,9 +31,9 @@ export function createMap(seed = WORLD.seed) {
     const clearing = Math.hypot(x - 2180, y - 1170) < 125 || Math.hypot(x - 830, y - 1000) < 120;
     const pond = Math.hypot((x - 2110) / 1.5, y - 690) < 140;
     if (fromVillage < 390 || road || clearing || pond || trees.some(t => Math.hypot(t.x - x, t.y - y) < 50)) continue;
-    const tree = { x: Math.round(x), y: Math.round(y), variant: Math.floor(random() * 3), scale: .85 + random() * .4 };
+    const tree = { id: `tree-${i}`, x: Math.round(x), y: Math.round(y), variant: Math.floor(random() * 3), scale: .85 + random() * .4 };
     trees.push(tree);
-    obstacles.push({ x: tree.x - 10, y: tree.y - 8, w: 20, h: 18, type: 'tree' });
+    obstacles.push({ x: tree.x - 10, y: tree.y - 8, w: 20, h: 18, type: 'tree', resourceId: tree.id });
   }
   obstacles.push({ x: 1950, y: 590, w: 285, h: 198, type: 'water' });
   const rocks = [];
@@ -40,7 +43,8 @@ export function createMap(seed = WORLD.seed) {
     rocks.push({ x, y, variant: i % 3 });
     obstacles.push({ x: x - 13, y: y - 8, w: 26, h: 18, type: 'rock' });
   }
-  return { seed, buildings, trees, rocks, obstacles };
+  const inWorkshopClearing = point => Math.hypot(point.x - MINE.x, point.y - MINE.y) < 185 || Math.hypot(point.x - 1390, point.y - 1450) < 150;
+  return { seed, buildings, trees: trees.filter(t => !inWorkshopClearing(t)), rocks: rocks.filter(r => !inWorkshopClearing(r)), obstacles: obstacles.filter(o => !['tree', 'rock'].includes(o.type) || !inWorkshopClearing(o)) };
 }
 
 // Static spatial buckets keep collision queries bounded as the map grows.

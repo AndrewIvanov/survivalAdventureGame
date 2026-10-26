@@ -1,7 +1,11 @@
 import { ATTRIBUTES, CLASSES, ITEMS, NPCS, CHESTS, ABILITIES, effectiveStats, EQUIPMENT_SLOTS, MAX_UPGRADE, upgradePrice, shopStock } from '../shared/rpg.js';
 import { clockInfo } from '../shared/survival.js';
 import { distance, inVillage } from '../shared/config.js';
-import { addItem, makeItem, inventoryAction, consumeItem, refreshStats } from './inventory.js';
+import { addItem, makeItem, inventoryAction, consumeItem, refreshStats, payCost, craftItem } from './inventory.js';
+import { RECIPES, upgradeCost } from '../shared/crafting.js';
+import { PROFESSIONS, PROFESSION_LEVEL, MAX_SKILL_RANK } from '../shared/professions.js';
+import { harvest } from './resources.js';
+import { buildFence, fenceAction } from './building.js';
 import { questAction, progressQuests } from './quests.js';
 import { skipDay } from './survival.js';
 import { summonGuardian } from './boss.js';
@@ -19,6 +23,9 @@ export function rpgAction(world, player, action) {
   if (!action || typeof action.type !== 'string') throw new Error('Неверное действие.');
   if (action.type === 'day:skip') return skipDay(world, player, action.ready);
   if (action.type === 'grave:carry') return carryGravestone(world, player, action.graveId);
+  if (action.type === 'resource:harvest') return harvest(world, player, action.nodeId);
+  if (action.type === 'build:place') return buildFence(world, player, action);
+  if (['build:upgrade', 'build:repair', 'build:remove'].includes(action.type)) return fenceAction(world, player, action);
   if (['equip', 'unequip', 'use'].includes(action.type)) return inventoryAction(world, player, action);
   if (action.type === 'class') {
     if (typeof action.classId !== 'string' || !Object.hasOwn(CLASSES, action.classId)) throw new Error('Неизвестный класс.');
@@ -27,15 +34,22 @@ export function rpgAction(world, player, action) {
     const starter = player.inventory.find(i => i.starter);
     if (!starter && player.inventory.length >= 24) throw new Error('Освободите ячейку для оружия нового класса.');
     player.inventory = player.inventory.filter(i => !i.starter);
-    const weapon = makeItem(CLASSES[action.classId].weapon); weapon.starter = true;
+    const weapon = makeItem('axe'); weapon.starter = true;
     addItem(player, weapon); player.equipment.weapon = weapon.id;
     player.classId = action.classId; player.classChosen = true; refreshStats(player, true);
   } else if (action.type === 'attribute') {
     if (!Object.hasOwn(ATTRIBUTES, action.attribute) || player.statPoints <= 0) throw new Error('Нет очков характеристики.');
     player.attributes[action.attribute]++; player.statPoints--; refreshStats(player);
   } else if (action.type === 'skill') {
-    if (!Object.hasOwn(ABILITIES[player.classId], action.key) || player.skillPoints <= 0 || player.abilityRanks[action.key] >= 3) throw new Error('Улучшение недоступно.');
-    player.abilityRanks[action.key]++; player.skillPoints--;
+    const professionSkill = action.key === 't' && !!PROFESSIONS[player.profession];
+    const count = action.count ?? 1;
+    if (!Number.isInteger(count) || count < 1 || count > 10 || (!professionSkill && !Object.hasOwn(ABILITIES[player.classId], action.key)) || player.skillPoints < count || (professionSkill ? player.professionRank : player.abilityRanks[action.key]) + count > MAX_SKILL_RANK) throw new Error('Улучшение недоступно.');
+    if (professionSkill) player.professionRank += count; else player.abilityRanks[action.key] += count;
+    player.skillPoints -= count; refreshStats(player);
+  } else if (action.type === 'profession') {
+    const profession = PROFESSIONS[action.professionId];
+    if (!profession || profession.classId !== player.classId || player.level < PROFESSION_LEVEL || player.profession) throw new Error('Профессию можно выбрать один раз с 10-го уровня для своего класса.');
+    player.profession = action.professionId; player.professionRank = 1; refreshStats(player);
   } else if (action.type === 'pickup') {
     const loot = world.loot.find(l => l.id === action.lootId);
     if (!loot || distance(player, loot) > 85) throw new Error('Добыча слишком далеко или уже подобрана.');
@@ -59,6 +73,15 @@ export function rpgAction(world, player, action) {
       if (player.gold < 15) throw new Error('На ремонт нужно 15 золота.');
       player.gold -= 15; world.village.hp = Math.min(world.village.maxHp, world.village.hp + 150);
     }
+    else if (action.type === 'craft') {
+      const recipe = RECIPES[action.recipeId];
+      if (!recipe || recipe.station !== npc.id) throw new Error('Этот мастер не знает такого рецепта.');
+      const item = craftItem(player, recipe.item, recipe.cost), base = ITEMS[item.baseId];
+      const current = player.inventory.find(i => i.id === player.equipment.weapon);
+      if (base.type === 'weapon' && base.classId === player.classId && current?.baseId === 'axe') player.equipment.weapon = item.id;
+      if (base.type === 'shield' && !player.equipment.shield) player.equipment.shield = item.id;
+      refreshStats(player);
+    }
     else if (['quest:accept', 'quest:claim'].includes(action.type)) questAction(world, player, action, npc);
     else if (action.type === 'buy') {
       const stock = shopStock(npc.id, player.classId);
@@ -69,16 +92,14 @@ export function rpgAction(world, player, action) {
     } else if (action.type === 'sell') {
       if (npc.id !== 'merchant') throw new Error('Продать вещи можно торговке Мире.');
       const item = player.inventory.find(i => i.id === action.itemId);
-      if (!item || item.starter || Object.values(player.equipment).includes(item.id)) throw new Error('Этот предмет нельзя продать. Сначала снимите экипировку.');
+      if (!item || Object.values(player.equipment).includes(item.id)) throw new Error('Этот предмет нельзя продать. Сначала снимите экипировку.');
       player.gold += Math.max(1, Math.floor(ITEMS[item.baseId].price * .4)); consumeItem(player, item);
     } else if (action.type === 'upgrade') {
       if (npc.id !== 'smith') throw new Error('Снаряжение улучшает кузнец.');
       const item = player.inventory.find(i => i.id === (action.itemId || player.equipment.weapon));
       if (!item || !Object.hasOwn(EQUIPMENT_SLOTS, ITEMS[item.baseId].type)) throw new Error('Выберите снаряжение из своего рюкзака.');
       if (item.upgrade >= MAX_UPGRADE) throw new Error('Максимальный уровень улучшения — +10.');
-      const price = upgradePrice(item);
-      if (player.gold < price) throw new Error('Не хватает золота.');
-      player.gold -= price; item.upgrade = (item.upgrade || 0) + 1; refreshStats(player);
+      payCost(player, upgradeCost(item)); item.upgrade = (item.upgrade || 0) + 1; refreshStats(player);
     } else throw new Error('Неизвестное действие.');
   }
   world.criticalSave = true;

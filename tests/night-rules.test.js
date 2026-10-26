@@ -21,22 +21,22 @@ function night(world, number) {
   beginNight(world, number); updateSurvival(world, 0);
 }
 
-test('waves follow 40, 40 + boss, 60, 60 + boss, 80, 80 + boss for solo and duo', () => {
+test('waves always contain 50 enemies, with a boss only on nights 3, 6, 9 and 12', () => {
   for (const party of [1, 2]) {
     const { world } = setup();
     if (party === 2) world.join('friend', 'Друг', 'sage');
     for (let n = 1; n <= 12; n++) {
       night(world, n);
-      assert.equal(world.survival.wave.total, 40 + Math.floor((n - 1) / 2) * 20);
-      assert.equal(world.survival.wave.bossRequired, n % 2 === 0);
-      assert.equal(world.monsters.filter(m => m.kind === 'guardian').length, n % 2 === 0 ? 1 : 0);
+      assert.equal(world.survival.wave.total, 50);
+      assert.equal(world.survival.wave.bossRequired, n % 3 === 0);
+      assert.equal(world.monsters.filter(m => m.kind === 'guardian').length, n % 3 === 0 ? 1 : 0);
     }
   }
-  assert.equal(waveSize(39), 420, 'later nights continue adding 20 instead of capping the planned wave');
+  assert.equal(waveSize(399), 50, 'the wave never grows beyond 50');
 });
 
-test('previous saves lower enemy stats once, resize an active wave and preserve boss, helpers and wounds', () => {
-  const { world, hero } = setup(); night(world, 2); hero.gold = 123;
+test('older balance saves migrate once, resize waves and remove extra helpers without healing wounds', () => {
+  const { world, hero } = setup(); night(world, 3); hero.gold = 123;
   const saved = world.serialize(); saved.survival.rulesVersion = 3;
   saved.survival.wave.total = saved.survival.wave.spawned = 130;
   const wolf = saved.monsters.find(m => m.kind === 'wolf');
@@ -44,12 +44,12 @@ test('previous saves lower enemy stats once, resize an active wave and preserve 
   boss.hp = 1000; boss.maxHp = 4000; boss.damage = 60;
   saved.monsters = [boss, { ...wolf, id: 'helper', summonOwner: boss.id }, ...Array.from({ length: 130 }, (_, i) => ({ ...wolf, id: `wolf-${i}`, hp: 40, maxHp: 160, damage: 22.5 }))];
   const restored = new GameWorld(saved);
-  assert.equal(restored.survival.rulesVersion, 4); assert.equal(restored.survival.wave.total, 40);
-  assert.equal(restored.survival.wave.spawned, 40); assert.equal(restored.monsters.length, 42);
+  assert.equal(restored.survival.rulesVersion, 5); assert.equal(restored.survival.wave.total, 50);
+  assert.equal(restored.survival.wave.spawned, 50); assert.equal(restored.monsters.length, 51);
   const migrated = restored.monsters.find(m => m.id === boss.id);
   assert.equal(migrated.maxHp, 3200); assert.equal(migrated.hp, 800); assert.equal(migrated.damage, 48);
   assert.equal(restored.monsters.find(m => m.id === 'wolf-129').hp, 32);
-  assert.ok(restored.monsters.some(m => m.id === 'helper'));
+  assert.ok(!restored.monsters.some(m => m.id === 'helper'));
   assert.equal(restored.kills, 0); assert.equal(restored.players.get(hero.id).gold, 123);
   assert.equal(restored.survival.clockMs, saved.survival.clockMs);
   const again = new GameWorld(restored.serialize());
@@ -67,24 +67,24 @@ test('daylight has no ambient monsters; dawn removes all night creatures with no
   world.survival.clockMs = CYCLE_MS - 50; world.tick(.05);
   assert.ok(world.monsters.every(m => m.obelisk)); assert.equal(world.monsters.length, 1);
   assert.equal(world.monsters[0].id, boss.id); assert.equal(world.kills, kills);
-  assert.equal(hero.gold, 65);
+  assert.equal(hero.gold, 15);
   world.tick(60); assert.ok(world.monsters.every(m => m.obelisk));
 });
 
-test('first two nights have 40 enemies for either party size and 20% weaker monsters', () => {
+test('first two nights have 50 enemies and retain the existing HP and damage', () => {
   const { world } = setup(); night(world, 1);
-  assert.equal(world.survival.wave.total, 40); assert.equal(world.survival.wave.spawned, 5);
+  assert.equal(world.survival.wave.total, 50); assert.equal(world.survival.wave.spawned, 5);
   const wolf = world.monsters.find(m => m.kind === 'wolf');
   assert.equal(wolf.maxHp, 128); assert.equal(wolf.damage, 18);
   world.join('friend', 'Друг', 'sage'); night(world, 2);
-  assert.equal(world.survival.wave.total, 40);
+  assert.equal(world.survival.wave.total, 50);
 });
 
 test('later waves still spawn throughout the two-minute night', () => {
   const { world } = setup(); night(world, 30);
   for (let i = 0; i < 2399; i++) { world.elapsed += 50; updateSurvival(world, .05); }
-  assert.equal(world.survival.wave.total, 320); assert.equal(world.survival.wave.spawned, 320);
-  assert.equal(world.monsters.length, 321); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
+  assert.equal(world.survival.wave.total, 50); assert.equal(world.survival.wave.spawned, 50);
+  assert.equal(world.monsters.length, 51); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
 });
 
 test('every consecutive night increases both normal-monster HP and damage', () => {
@@ -97,11 +97,11 @@ test('every consecutive night increases both normal-monster HP and damage', () =
   }
 });
 
-test('bosses appear only every second night, change form, and always grow stronger', () => {
+test('bosses appear only every third night, change form, and always grow stronger', () => {
   const { world } = setup(); const forms = new Set(); let hp = 0, damage = 0;
-  for (let n = 1; n <= 10; n++) {
+  for (let n = 1; n <= 12; n++) {
     night(world, n); const boss = world.monsters.find(m => m.kind === 'guardian');
-    assert.equal(!!boss, n % 2 === 0);
+    assert.equal(!!boss, n % 3 === 0);
     if (boss) { forms.add(boss.variant); assert.ok(boss.maxHp > hp); assert.ok(boss.damage > damage); hp = boss.maxHp; damage = boss.damage; }
   }
   assert.equal(forms.size, 4);
@@ -139,6 +139,7 @@ test('NPC services reject nighttime trades, upgrades, repairs and quests without
 
 test('every equipment slot can be worn, removed, upgraded to +10 and restored with stats intact', () => {
   const { world, hero } = setup(); const smith = NPCS.find(n => n.id === 'smith'); hero.x = smith.x; hero.y = smith.y; hero.gold = 10000;
+  for (const id of ['wood', 'ore']) { const material = makeItem(id); material.quantity = id === 'wood' ? 800 : 700; addItem(hero, material); }
   for (const slot of Object.keys(EQUIPMENT_SLOTS)) {
     const item = slot === 'weapon' ? hero.inventory[0] : addItem(hero, makeItem(slot));
     rpgAction(world, hero, { type: 'equip', itemId: item.id }); assert.equal(hero.equipment[slot], item.id);
@@ -158,8 +159,8 @@ test('every equipment slot can be worn, removed, upgraded to +10 and restored wi
 test('new gear is sold by village shops; invalid upgrades cannot spend money or affect another hero', () => {
   const { world, hero } = setup(); hero.gold = 1000;
   const npc = NPCS.find(n => n.id === 'merchant'); hero.x = npc.x; hero.y = npc.y;
-  for (const baseId of ['armor', 'boots', 'shield', 'helmet']) rpgAction(world, hero, { type: 'buy', npcId: npc.id, baseId });
-  assert.ok(['boots', 'shield', 'helmet'].every(id => hero.inventory.some(i => i.baseId === id)));
+  for (const baseId of ['armor', 'boots', 'helmet']) rpgAction(world, hero, { type: 'buy', npcId: npc.id, baseId });
+  assert.ok(['boots', 'helmet'].every(id => hero.inventory.some(i => i.baseId === id)));
   const smith = NPCS.find(n => n.id === 'smith'); hero.x = smith.x; hero.y = smith.y;
   const friend = world.join('friend', 'Друг', 'sage'), gold = hero.gold;
   for (const itemId of [friend.equipment.weapon, hero.inventory.find(i => i.baseId === 'health').id]) assert.throws(() => rpgAction(world, hero, { type: 'upgrade', npcId: 'smith', itemId }));

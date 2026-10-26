@@ -152,6 +152,13 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       io.to(world.id).emit('chat:message', message);
       acknowledge(ack, { ok: true, message });
     });
+    command('ui:notices', async (data, ack) => {
+      const world = worlds.get(socket.data.worldId), player = world?.players.get(socket.data.playerId);
+      if (!player?.online || sessions.get(`${world.id}:${player.id}`) !== socket.id) throw new Error('Сначала войдите в мир.');
+      if (!Array.isArray(data?.keys) || data.keys.length > 32 || !data.keys.every(key => typeof key === 'string' && /^[\w:-]{1,80}$/.test(key))) throw new Error('Неверные настройки подсказок.');
+      player.seenNotices = [...new Set([...(player.seenNotices || []), ...data.keys])].slice(0, 128);
+      world.criticalSave = true; const ok = await save(world); acknowledge(ack, { ok, ...(ok ? {} : { error: 'Подсказки сохранятся после восстановления связи.' }) });
+    });
     for (const [event, handler] of [['rpg:action', rpgAction], ['ability', castAbility]]) command(event, async (data, ack) => {
       const world = worlds.get(socket.data.worldId);
       if (!world) throw new Error('Сначала войдите в мир.');

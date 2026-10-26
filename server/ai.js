@@ -2,6 +2,7 @@ import { MONSTERS, distance, WORLD } from '../shared/config.js';
 import { canStand } from '../shared/map.js';
 import { chaseWaypoint } from './navigation.js';
 import { damagePlayer } from './combat.js';
+import { blockingFence, damageFence } from './building.js';
 
 // No home leash or village exclusion: every living hero can be hunted anywhere.
 export function pursue(world, monster, target, speed, dt, radius = 12) {
@@ -16,11 +17,20 @@ export function pursue(world, monster, target, speed, dt, radius = 12) {
 }
 
 export function updateMonsters(world, dt) {
-  const alive = [...world.players.values()].filter(p => p.online && p.hp > 0);
+  const alive = [...world.players.values()].filter(p => p.online && p.hp > 0 && !(p.stealthUntil > world.elapsed)).concat(world.allies.filter(a => a.hp > 0));
   for (const monster of world.monsters) {
     if (monster.kind === 'guardian' || monster.hp <= 0) continue;
+    if (monster.frozenUntil > world.elapsed) { monster.state = 'frozen'; continue; }
     const config = MONSTERS[monster.kind];
     const target = alive.reduce((nearest, p) => !nearest || distance(monster, p) < distance(monster, nearest) ? p : nearest, null);
+    const fence = blockingFence(world, monster, target);
+    if (fence) {
+      monster.state = 'siege'; monster.targetId = fence.id;
+      if (distance(monster, fence) <= config.range + 23) {
+        if (world.elapsed - monster.lastAttack >= config.cooldown) { monster.lastAttack = world.elapsed; damageFence(world, monster, fence); }
+      } else pursue(world, monster, fence, config.speed * 1.1 * (monster.slowUntil > world.elapsed ? .4 : 1), dt);
+      continue;
+    }
     monster.targetId = target?.id || null;
     monster.state = target ? distance(monster, target) <= config.range ? 'attack' : 'chase' : 'roam';
     if (monster.state === 'attack') {

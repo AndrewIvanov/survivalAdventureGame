@@ -28,7 +28,7 @@ export function createTextures(scene) {
     r(38, 17, 4, 5, col[4]); r(32, 44, 7, 3, col[4]);
   });
 
-  for (const style of ['altar', 'hall', 'forge', 'shop', 'cottage']) texture(scene, `building-${style}`, 176, 172, (c, r, p) => {
+  for (const style of ['altar', 'hall', 'forge', 'shop', 'cottage', 'sawmill']) texture(scene, `building-${style}`, 176, 172, (c, r, p) => {
     const roof = style === 'altar' ? ['#414a59', '#647586', '#a3b7bf'] : style === 'hall' ? ['#454c59', '#596879', '#74828a'] : style === 'forge' ? ['#514c43', '#6c6453', '#8a7a5c'] : ['#713e31', '#955539', '#b87648'];
     c.fillStyle = '#14291c70'; c.beginPath(); c.ellipse(88, 149, 82, 16, 0, 0, Math.PI * 2); c.fill();
     r(24, 84, 128, 62, '#a69b74'); r(25, 86, 14, 59, '#817655'); r(140, 85, 12, 62, '#71684c');
@@ -58,6 +58,10 @@ export function createTextures(scene) {
       r(85, 51, 5, 18, '#e2edcb'); r(80, 57, 15, 4, '#e2edcb');
     }
     if (style === 'forge') { r(115, 119, 28, 25, '#484a42'); r(120, 128, 16, 14, '#9d5034'); r(125, 131, 7, 11, '#f0b858'); r(24, 134, 17, 10, '#484a42'); }
+    if (style === 'sawmill') {
+      for (const [x, y] of [[22, 142], [34, 150], [122, 145]]) { r(x, y, 35, 9, '#725536'); r(x + 2, y + 1, 5, 7, '#ceb181'); r(x + 11, y + 2, 21, 2, '#9e7949'); }
+      c.fillStyle = '#a7b3a7'; c.beginPath(); c.arc(145, 121, 12, 0, Math.PI * 2); c.fill(); r(143, 110, 3, 22, '#586e6d'); r(134, 120, 22, 3, '#586e6d');
+    }
     r(42, 144, 7, 5, '#526b44'); r(130, 145, 10, 5, '#526b44');
   });
 

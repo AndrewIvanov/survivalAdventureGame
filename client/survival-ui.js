@@ -1,4 +1,4 @@
-import { SURVIVAL, sheltered, assaultActive, waveSize } from '../shared/survival.js';
+import { SURVIVAL, sheltered, assaultActive, waveSize, bossNight } from '../shared/survival.js';
 import { GAME_VERSION } from '../shared/version.js';
 
 const formatTime = ms => { const seconds = Math.ceil(Math.max(0, ms) / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
@@ -21,7 +21,7 @@ export class SurvivalInterface {
       if (this.ui.state) this.render(this.ui.state, this.ui.state.players.find(p => p.id === this.ui.net.playerId));
     };
     const end = document.createElement('div'); end.id = 'game-over-overlay'; end.className = 'game-over-overlay'; end.hidden = true;
-    end.innerHTML = `<section class="game-over-card" role="dialog" aria-modal="true" aria-labelledby="game-over-title"><div class="eyebrow">ПРИКЛЮЧЕНИЕ ЗАВЕРШЕНО</div><h2 id="game-over-title">Отряд пал</h2><p>Все герои отряда погибли. Некому отнести надгробия к алтарю.</p><div id="game-over-result"></div><button id="game-over-restart" class="primary-button">Новое приключение ${icon('arrow')}</button><button id="game-over-menu" class="secondary-button">В главное меню</button><small>Новый мир начнётся с первого дня и 50 золотых у каждого героя.</small></section>`;
+    end.innerHTML = `<section class="game-over-card" role="dialog" aria-modal="true" aria-labelledby="game-over-title"><div class="eyebrow">ПРИКЛЮЧЕНИЕ ЗАВЕРШЕНО</div><h2 id="game-over-title">Отряд пал</h2><p>Все герои отряда погибли. Некому отнести надгробия к алтарю.</p><div id="game-over-result"></div><button id="game-over-restart" class="primary-button">Новое приключение ${icon('arrow')}</button><button id="game-over-menu" class="secondary-button">В главное меню</button><small>Новый мир начнётся с первого дня с топориком и без золота у каждого героя.</small></section>`;
     this.ui.$('hud').append(end);
     const leave = async restart => {
       const button = this.ui.$(restart ? 'game-over-restart' : 'game-over-menu'); button.disabled = true;
@@ -36,7 +36,7 @@ export class SurvivalInterface {
     this.ui.$('hud').append(boss);
     const banner = document.createElement('div'); banner.id = 'survival-banner'; banner.className = 'survival-banner'; banner.hidden = true;
     this.ui.$('hud').append(banner);
-    document.querySelector('.version').innerHTML = `ВЫЖИВАНИЕ · ЭТАП 3 <span>v${GAME_VERSION}</span>`;
+    document.querySelector('.version').innerHTML = `РЕМЕСЛО И ПРОФЕССИИ <span>v${GAME_VERSION}</span>`;
     document.querySelector('.connection-info b').textContent = `v${GAME_VERSION}`;
     this.ui.net.on('effects', events => this.effects(events));
   }
@@ -63,7 +63,7 @@ export class SurvivalInterface {
     this.ui.$('survival-phase').innerHTML = `${this.icon(s.phase === 'night' ? 'compass' : 'sun')} ${s.phase === 'night' ? 'НОЧЬ' : 'ДЕНЬ'} ${s.day}`;
     this.ui.$('survival-timer').textContent = formatTime(s.remaining);
     this.ui.$('cycle-fill').style.width = `${s.progress * 100}%`;
-    this.ui.$('wave-summary').textContent = active ? `Волна ${s.wave.night} · Врагов: ${s.wave.alive} · Подходят: ${s.wave.total - s.wave.spawned}` : s.wave?.status === 'failed' && s.phase === 'night' ? 'Деревня пала. Староста поможет с ремонтом.' : s.phase === 'night' ? 'Нападение отбито. Доживите до рассвета.' : s.warning ? 'Скоро нападение. Возвращайтесь в деревню.' : `В ночь ${s.day}: ${waveSize(s.day)} монстров${s.day % 2 === 0 ? ' + босс' : ''}`;
+    this.ui.$('wave-summary').textContent = active ? `Волна ${s.wave.night} · Врагов: ${s.wave.alive} · Подходят: ${s.wave.total - s.wave.spawned}` : s.wave?.status === 'failed' && s.phase === 'night' ? 'Деревня пала. Староста поможет с ремонтом.' : s.phase === 'night' ? 'Нападение отбито. Доживите до рассвета.' : s.warning ? 'Скоро нападение. Возвращайтесь в деревню.' : `В ночь ${s.day}: ${waveSize(s.day)} монстров${bossNight(s.day) ? ' + босс' : ''}`;
     this.ui.$('village-hp-label').textContent = `${Math.ceil(village.hp)} / ${village.maxHp}`;
     this.ui.$('village-hp-fill').style.width = `${village.hp / village.maxHp * 100}%`;
     this.ui.$('village-hp-fill').classList.toggle('low', village.hp / village.maxHp < .3);
@@ -84,6 +84,7 @@ export class SurvivalInterface {
   }
   effects(events) {
     for (const e of events) {
+      if (['night-warning', 'night-start', 'dawn', 'wave-defended', 'wave-failed', 'boss-awakened', 'boss-defeated', 'boss-phase'].includes(e.type) && !this.ui.notices.take(`banner:${e.type}`)) continue;
       if (e.type === 'respawn') this.ui.toast(e.id === this.ui.net.playerId ? 'Вы воскресли у алтаря. Напарник вернул ваше надгробие.' : `${e.name || 'Напарник'} воскрес у алтаря.`);
       let title, message;
       if (e.type === 'night-warning') { title = 'СУМЕРКИ СГУЩАЮТСЯ'; message = `До ночи ${e.seconds || 30} с. Подготовьте снаряжение и зелья.`; }
@@ -93,7 +94,7 @@ export class SurvivalInterface {
       if (e.type === 'wave-failed') { title = 'ЗАЩИТА ДЕРЕВНИ ПАЛА'; message = 'Прогресс героев сохранён. Обратитесь к старосте за ремонтом.'; }
       if (e.type === 'boss-awakened') { title = (e.name || 'Босс пробуждён').toUpperCase(); message = 'Красные области предупреждают об ударах. Используйте рывок.'; }
       if (e.type === 'boss-defeated') { title = `${e.name || 'Босс'} повержен`.toUpperCase(); message = 'Эпическая награда ждёт каждого участника боя. Подберите её через F.'; }
-      if (e.type === 'boss-phase') this.ui.toast(`Лесной страж: фаза ${e.phase}. ${e.phase === 3 ? 'Атаки ускорились!' : 'Он призывает сумеречных хищников.'}`);
+      if (e.type === 'boss-phase') this.ui.toast(`Лесной страж: фаза ${e.phase}. ${e.phase === 3 ? 'Атаки ускорились!' : 'Следите за предупреждающими кругами.'}`);
       if (!title) continue;
       this.ui.$('discovery').hidden = true;
       const banner = this.ui.$('survival-banner');
@@ -104,7 +105,7 @@ export class SurvivalInterface {
   open() {
     this.ui.panel = 'survival'; this.ui.scene.pausedInput = true; this.ui.scene.input?.keyboard?.resetKeys();
     this.ui.$('modal-backdrop').hidden = false; this.ui.$('modal').classList.remove('wide');
-    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · ВЫЖИВАНИЕ</div><h2 id="modal-title">Дожить до рассвета</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><div class="survival-guide"><p>День длится <b>5 минут</b>, ночь — <b>2 минуты</b>. За 30 секунд до темноты придёт предупреждение. Кнопка «Пропустить день» сразу начинает ночь; вдвоём нужно согласие обоих подключённых героев.</p><p>Новый герой получает <b>50 золотых</b>. Погибший герой оставляет надгробие. Напарник забирает его клавишей <b>F</b> и несёт к <b>Алтарю</b> в северо-западной части деревни. Возле алтаря герой воскресает автоматически. Если живой напарник не в сети, мир ждёт его возвращения. Когда погибнут все герои, игра закончится.</p><p>Днём лес свободен от монстров. Ночью жители скрываются, а монстры охотятся за героями по всей карте, включая деревню. Ночью деревня не лечит.</p><p>В ночи 1 и 2 приходит по <b>40 монстров</b>, в ночи 3 и 4 — по <b>60</b>, в ночи 5 и 6 — по <b>80</b> и так далее: каждые две ночи на 20 больше. Число героев не меняет размер волны. Монстры приходят группами по 5 в течение всей ночи, босс добавляется к волне каждую чётную ночь. Здоровье и урон всех монстров и боссов снижены ещё на 20%. Каждая следующая ночь добавляет 20% базового здоровья и 15% базового урона. Уничтожьте волну или продержитесь до рассвета.</p><p>Каждую <b>вторую ночь</b> приходит босс: лесной, ледяной, пепельный или грозовой. Их здоровье и урон растут вместе с номером ночи.</p><p><b>Обелиск на восточной поляне</b> позволяет призвать отдельного босса один раз за игровой день для всего отряда. Это единственное исключение для дневных монстров. Новый призыв открывается после рассвета.</p><p>Кузнец днём улучшает оружие, броню, сапоги, щит, шлем и кольцо до <b>+10</b>. Надевайте и снимайте вещи в рюкзаке — I. Новое снаряжение продаётся в деревне и выпадает из врагов.</p><p>Пустой мир приостанавливается. Прогресс героев, время, волна и использованный призыв сохраняются между сессиями.</p></div>`;
+    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · ВЫЖИВАНИЕ</div><h2 id="modal-title">Дожить до рассвета</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><div class="survival-guide"><p>День длится <b>5 минут</b>, ночь — <b>2 минуты</b>. За 30 секунд до темноты придёт предупреждение. Кнопка «Пропустить день» сразу начинает ночь; вдвоём нужно согласие обоих подключённых героев.</p><p>Новый герой получает <b>топорик и 0 золота</b>. Дерево добывается через F, а оружие и щит создаются на лесопилке. Кирку можно купить у Миры за 10 монет. Погибший герой оставляет надгробие. Напарник забирает его клавишей <b>F</b> и несёт к <b>Алтарю</b> в северо-западной части деревни. Возле алтаря герой воскресает автоматически. Если живой напарник не в сети, мир ждёт его возвращения. Когда погибнут все герои, игра закончится.</p><p>Днём лес свободен от монстров. Ночью жители скрываются, а монстры охотятся за героями по всей карте, включая деревню. Ночью деревня не лечит.</p><p>Каждую ночь приходит <b>ровно 50 обычных монстров</b>, группами по 5. Босс появляется только в ночи <b>3, 6, 9, 12…</b> и не призывает помощников. Базовые здоровье и урон сохранены, скорость уменьшена на 5%. Каждая следующая ночь добавляет 20% базового здоровья и 15% базового урона.</p><p>На лесопилке дерево обменивается на меч, щит, лук, палочку и ящики для забора. B — строительство, F возле забора — улучшение до 10 уровня за дерево, руду и золото. В северо-западной шахте добывается руда для стального оружия и закалки в кузнице.</p><p>Навыки Q/E/R и профессии T улучшаются до 100 ранга прямо над панелью боя. Один ранг даёт примерно +1% эффекта. С 10 уровня выберите профессию через P. Восстановление энергии: 2,4/с в спокойной деревне и 1/с вне её. Подсказки и информационные баннеры показываются один раз за приключение.</p><p><b>Обелиск на восточной поляне</b> позволяет призвать отдельного босса один раз за игровой день для всего отряда. Это единственное исключение для дневных монстров. Новый призыв открывается после рассвета.</p><p>Кузнец днём улучшает оружие, броню, сапоги, щит, шлем и кольцо до <b>+10</b>. Надевайте и снимайте вещи в рюкзаке — I. Новое снаряжение продаётся в деревне и выпадает из врагов.</p><p>Пустой мир приостанавливается. Прогресс героев, время, волна и использованный призыв сохраняются между сессиями.</p></div>`;
     this.ui.$('close-modal').onclick = () => this.ui.closePanel(); this.ui.$('close-modal').focus();
   }
   markMap(c, sx, sy, full, state) {

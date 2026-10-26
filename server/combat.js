@@ -5,8 +5,10 @@ import { canStand } from '../shared/map.js';
 import { checkPartyDefeat } from './game-over.js';
 import { rewardKill } from './rewards.js';
 import { leaveGravestone } from './revival.js';
+import { chooseCritical, professionHit, professionKill } from './professions.js';
+import { skillScale } from '../shared/professions.js';
 
-export function damageMonster(world, player, monster, amount, { critical = false, knockback = 0 } = {}) {
+export function damageMonster(world, player, monster, amount, { critical = false, knockback = 0, proc = true } = {}) {
   if (world.gameOver || monster.hp <= 0) return;
   const damage = Math.max(1, Math.round(amount));
   monster.hp = Math.max(0, monster.hp - damage);
@@ -16,9 +18,11 @@ export function damageMonster(world, player, monster, amount, { critical = false
     world.move(monster, Math.cos(angle) * knockback, Math.sin(angle) * knockback);
   }
   world.events.push({ type: 'hit', id: monster.id, x: monster.x, y: monster.y - 25, damage, critical });
+  if (proc) professionHit(world, player, monster);
   if (monster.hp > 0) return;
   monster.respawnAt = world.elapsed + 45000; monster.state = 'dead'; world.kills++;
   rewardKill(world, player, monster);
+  if (proc) professionKill(world, player);
 }
 
 export function lineClear(world, from, to) {
@@ -33,7 +37,7 @@ export function melee(world, player, multiplier = 1, radius = PLAYER.reach, full
     if (monster.hp <= 0 || distance(player, monster) > radius + (monster.kind === 'guardian' ? 20 : 0) || !lineClear(world, player, monster)) continue;
     const angle = Math.atan2(monster.y - player.y, monster.x - player.x);
     if (!fullCircle && Math.cos(angle - player.angle) < .18) continue;
-    const critical = world.random() < stats.critical;
+    const critical = chooseCritical(world, player);
     damageMonster(world, player, monster, stats.damage * multiplier * (critical ? 1.75 : 1), { critical, knockback: 13 });
   }
 }
@@ -50,7 +54,8 @@ export function attack(world, player) {
   const stats = effectiveStats(player);
   if (world.gameOver || player.hp <= 0 || world.elapsed - player.lastAttack < stats.cooldown) return;
   player.lastAttack = world.elapsed;
-  if (player.classId === 'mage' || player.classId === 'archer') projectile(world, player);
+  player.stealthUntil = 0;
+  if (stats.weaponId !== 'axe' && (player.classId === 'mage' || player.classId === 'archer')) projectile(world, player);
   else {
     world.events.push({ type: 'attack', id: player.id, x: player.x, y: player.y, angle: player.angle });
     melee(world, player);
@@ -69,7 +74,7 @@ export function updateProjectiles(world, dt) {
       for (const m of world.monsters) {
         if (m.hp <= 0 || p.hit.includes(m.id) || distance(p, m) > p.radius + (m.kind === 'guardian' ? 30 : 9)) continue;
         p.hit.push(m.id);
-        const critical = world.random() < effectiveStats(owner).critical;
+        const critical = chooseCritical(world, owner);
         damageMonster(world, owner, m, p.damage * (critical ? 1.75 : 1), { critical, knockback: 6 });
         if (p.blast) for (const neighbor of world.monsters) if (neighbor.id !== m.id && neighbor.hp > 0 && distance(neighbor, p) < p.blast) damageMonster(world, owner, neighbor, p.damage * .7);
         if (p.blast) world.events.push({ type: 'spell', kind: 'fire', x: p.x, y: p.y, radius: p.blast });
@@ -87,10 +92,15 @@ export function hurtPlayer(world, monster, player) {
 
 export function damagePlayer(world, monster, player, amount) {
   if (world.gameOver || player.hp <= 0 || world.elapsed < player.invulnerableUntil) return;
-  const armor = effectiveStats(player).armor + (player.guardUntil > world.elapsed ? 10 + (player.abilityRanks.r - 1) * 4 : 0);
+  if (player.kind === 'skeleton') {
+    player.hp = Math.max(0, player.hp - Math.max(1, Math.round(amount)));
+    world.events.push({ type: 'hurt', id: player.id, x: player.x, y: player.y - 26, damage: Math.round(amount) }); return;
+  }
+  const armor = effectiveStats(player).armor + (player.guardUntil > world.elapsed ? 10 + (player.abilityRanks.r - 1) * .1 : 0);
   const damage = Math.max(1, Math.round(amount - armor));
   player.hp = Math.max(0, player.hp - damage); player.lastHurt = world.elapsed;
   world.events.push({ type: 'hurt', id: player.id, x: player.x, y: player.y - 26, damage });
+  if (player.reflectUntil > world.elapsed && monster.hp > 0 && world.monsters.includes(monster)) damageMonster(world, player, monster, damage * Math.min(.7, .35 * skillScale(player.professionRank)), { proc: false });
   if (player.hp === 0) {
     leaveGravestone(world, player);
     world.events.push({ type: 'death', id: player.id }); world.criticalSave = true;

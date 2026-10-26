@@ -6,20 +6,23 @@ import { createRpgTextures } from './rpg-art.js';
 import { NPCS, RARITIES, ITEMS, CLASSES, ABILITIES } from '../../shared/rpg.js';
 import { MONSTERS } from '../../shared/config.js';
 import { SurvivalScene } from './survival-scene.js';
+import { ProgressionScene } from './progression-scene.js';
 
 export class WorldScene extends Phaser.Scene {
   constructor(network) {
     super('world'); this.network = network; this.entities = new Map(); this.pausedInput = true;
-    this.lastSent = 0; this.lastPosition = null; this.effectsEnabled = true;
+    this.lastSent = 0; this.lastPosition = null; this.effectsEnabled = true; this.buildMode = false;
   }
   create() {
     this.map = createMap();
     createTextures(this); createRpgTextures(this); createGround(this, this.map);
     this.survivalScene = new SurvivalScene(this); this.survivalScene.create();
+    this.progressionScene = new ProgressionScene(this); this.progressionScene.create();
     this.rpgViews = new Map();
     this.zoneGraphics = this.add.graphics().setDepth(9000);
     this.add.image(0, 0, 'ground').setOrigin(0).setDepth(-1000);
-    for (const tree of this.map.trees) this.add.image(tree.x, tree.y, `tree-${tree.variant}`).setOrigin(.5, .9).setScale(tree.scale).setDepth(tree.y + 10);
+    this.treeViews = new Map();
+    for (const tree of this.map.trees) this.treeViews.set(tree.id, this.add.image(tree.x, tree.y, `tree-${tree.variant}`).setOrigin(.5, .9).setScale(tree.scale).setDepth(tree.y + 10));
     for (const rock of this.map.rocks) this.add.image(rock.x, rock.y, `rock-${rock.variant}`).setOrigin(.5, .8).setDepth(rock.y);
     for (const b of this.map.buildings) {
       const sprite = this.add.image(b.x, b.y, `building-${b.style}`).setOrigin(.5, .84).setDepth(b.y + 20);
@@ -82,13 +85,14 @@ export class WorldScene extends Phaser.Scene {
     this.entities.clear(); this.pausedInput = true;
     for (const view of this.rpgViews?.values() || []) view.destroy();
     this.rpgViews?.clear(); this.zoneGraphics?.clear();
-    this.survivalScene?.reset();
+    this.survivalScene?.reset(); this.progressionScene?.reset(); this.buildMode = false;
     this.cameraTarget.set(1536, 1140);
   }
   makeView(data, player) {
     const shadow = this.add.ellipse(0, 1, player ? 29 : 37, 11, 0x15261c, .4);
-    const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player);
-    const sprite = this.add.sprite(0, 0, player ? `class-${data.classId || 'warrior'}-${data.appearance}-0` : data.kind === 'guardian' ? `guardian-${data.variant || 'forest'}` : data.kind).setOrigin(.5, .92);
+    const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player || data.kind === 'skeleton');
+    const axe = player && data.inventory?.find(i => i.id === data.equipment?.weapon)?.baseId === 'axe';
+    const sprite = this.add.sprite(0, 0, player ? `class-${axe ? 'axe' : data.classId || 'warrior'}-${data.appearance}-0` : data.kind === 'guardian' ? `guardian-${data.variant || 'forest'}` : data.kind).setOrigin(.5, .92);
     const label = this.add.text(0, player ? -55 : data.kind === 'guardian' ? -158 : -48, player ? data.name : data.kind === 'guardian' ? data.name || MONSTERS.guardian.name : data.elite ? '★' : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#d4cca3', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
     if (data.elite) sprite.setTint(0xc7b1dd);
     const health = this.add.graphics();
@@ -99,14 +103,17 @@ export class WorldScene extends Phaser.Scene {
     if (!this.sys.isActive()) return;
     for (const object of this.npcObjects) object.setVisible(state.survival?.phase !== 'night');
     const visible = new Set();
-    for (const data of [...state.players.filter(p => p.online), ...state.monsters]) {
+    for (const data of [...state.players.filter(p => p.online), ...state.monsters, ...(state.allies || [])]) {
       visible.add(data.id);
       let view = this.entities.get(data.id);
       const player = !data.kind;
       if (!view) { view = this.makeView(data, player); this.entities.set(data.id, view); }
       view.data = data;
       view.container.setVisible(!player || data.hp > 0);
-      view.container.setAlpha(data.hp <= 0 ? .35 : 1);
+      view.container.setAlpha(data.hp <= 0 ? .35 : data.stealthUntil > state.elapsed ? .3 : 1);
+      if (data.frozenUntil > state.elapsed) view.sprite.setTint(0xa3d5e5);
+      else if (data.burning) view.sprite.setTint(0xe9b182);
+      else if (data.elite) view.sprite.setTint(0xc7b1dd); else view.sprite.clearTint();
       view.health.clear();
       if (data.hp < data.maxHp && data.hp > 0) {
         const y = player ? -46 : data.kind === 'guardian' ? -146 : -39, width = data.kind === 'guardian' ? 84 : 36;
@@ -120,6 +127,7 @@ export class WorldScene extends Phaser.Scene {
     }
     this.syncRpg(state);
     this.survivalScene.sync(state);
+    this.progressionScene.sync(state);
   }
   syncRpg(state) {
     const ids = new Set();
@@ -133,7 +141,8 @@ export class WorldScene extends Phaser.Scene {
           view = this.add.container(object.x, object.y, [glow, gem]);
         } else {
           const magic = ['magic', 'fire'].includes(object.projectileKind);
-          view = this.add.container(object.x, object.y, [this.add.rectangle(0, 0, magic ? 14 : 23, magic ? 8 : 3, magic ? object.projectileKind === 'fire' ? 0xf0a45e : 0xb8a7ed : 0xe3d8a2), this.add.circle(magic ? 7 : 11, 0, magic ? 5 : 3, magic ? 0xf3d8ad : 0xe4dec2)]);
+          const sniper = object.projectileKind === 'sniper';
+          view = this.add.container(object.x, object.y, [this.add.rectangle(0, 0, sniper ? 52 : magic ? 14 : 23, sniper ? 10 : magic ? 8 : 3, magic ? object.projectileKind === 'fire' ? 0xf0a45e : 0xb8a7ed : 0xe3d8a2), this.add.circle(sniper ? 24 : magic ? 7 : 11, 0, sniper ? 9 : magic ? 5 : 3, magic ? 0xf3d8ad : 0xe4dec2)]);
         }
         this.rpgViews.set(object.id, view);
       }
@@ -158,6 +167,7 @@ export class WorldScene extends Phaser.Scene {
   update(time, delta) {
     if (!this.cameraTarget) return;
     this.survivalScene?.update(time, delta);
+    this.progressionScene?.update(time);
     const me = this.entities.get(this.network.playerId);
     const factor = 1 - Math.exp(-delta / 65);
     for (const view of this.rpgViews.values()) if (view.projectileData) {
@@ -172,7 +182,8 @@ export class WorldScene extends Phaser.Scene {
       container.setDepth(container.y + 5);
       sprite.setFlipX(Math.cos(data.angle) < -.15);
       if (view.player) {
-        sprite.setTexture(`class-${data.classId || 'warrior'}-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`);
+        const axe = data.inventory?.find(i => i.id === data.equipment?.weapon)?.baseId === 'axe';
+        sprite.setTexture(`class-${axe ? 'axe' : data.classId || 'warrior'}-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`);
         sprite.y = moved && data.hp > 0 ? Math.sin(time / 75) * 1.3 : Math.sin(time / 380) * .5;
       } else sprite.y = moved ? Math.sin(time / 90) * 1.5 : 0;
       sprite.setRotation(data.hp <= 0 ? -1.2 : 0);
@@ -189,7 +200,8 @@ export class WorldScene extends Phaser.Scene {
     const x = Number(this.keys.right.isDown || this.keys.right2.isDown) - Number(this.keys.left.isDown || this.keys.left2.isDown);
     const y = Number(this.keys.down.isDown || this.keys.down2.isDown) - Number(this.keys.up.isDown || this.keys.up2.isDown);
     const angle = me ? Math.atan2(worldPointer.y - me.container.y, worldPointer.x - me.container.x) : 0;
-    this.network.input({ x, y, angle, attack: pointer.leftButtonDown() });
+    const overUI = !!document.elementFromPoint(pointer.x, pointer.y)?.closest('button, input, .panel');
+    this.network.input({ x, y, angle, attack: !this.buildMode && !overUI && pointer.leftButtonDown() });
     if (Phaser.Input.Keyboard.JustDown(this.keys.dash)) this.network.dash();
   }
   floatText(x, y, text, color, size = 15) {
@@ -199,6 +211,7 @@ export class WorldScene extends Phaser.Scene {
   effects(events) {
     if (!this.sys.isActive()) return;
     this.survivalScene?.effects(events);
+    this.progressionScene?.effects(events);
     for (const event of events) {
       const view = this.entities.get(event.id);
       if (event.type === 'attack') {

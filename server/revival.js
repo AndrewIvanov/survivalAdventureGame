@@ -32,7 +32,7 @@ export function dropCarriedGravestones(world, player) {
 }
 
 export function leaveGravestone(world, player) {
-  player.input = {}; player.dashUntil = 0; player.guardUntil = 0;
+  player.input = {}; player.dashUntil = 0; player.guardUntil = 0; player.reflectUntil = 0; player.orbitUntil = 0; player.stealthUntil = 0; player.ambushUntil = 0;
   dropCarriedGravestones(world, player);
   if (!world.gravestones.some(grave => grave.playerId === player.id)) world.gravestones.push(newGrave(world, player));
   world.criticalSave = true;

@@ -7,6 +7,7 @@ import { GameWorld } from '../server/world.js';
 import { WORLD, PLAYER, MONSTERS, distance } from '../shared/config.js';
 import { canStand, createMap } from '../shared/map.js';
 import { attack, hurtPlayer } from '../server/combat.js';
+import { effectiveStats } from '../shared/rpg.js';
 import { SaveStore } from '../server/persistence.js';
 
 function combatWorld() {
@@ -47,28 +48,28 @@ test('collisions stop movement and dashes cannot cross walls', () => {
 
 test('shared enemy damage, attack cooldown, team experience and no double rewards', () => {
   const world = combatWorld(); const a = world.join('a', 'A', 'ranger'), b = world.join('b', 'B', 'sage');
-  world.monsters = [{ ...world.monsters[0], x: a.x + 45, y: a.y, hp: 48, maxHp: 64 }];
+  world.monsters = [{ ...world.monsters[0], x: a.x + 45, y: a.y, hp: 24, maxHp: 64 }];
   a.angle = 0; b.x = a.x + 10; b.y = a.y + 20;
   world.random = () => .5;
   attack(world, a);
-  assert.equal(world.monsters[0].hp, 24);
+  assert.equal(world.monsters[0].hp, 12);
   attack(world, a);
-  assert.equal(world.monsters[0].hp, 24);
-  world.elapsed += PLAYER.attackCooldown;
+  assert.equal(world.monsters[0].hp, 12);
+  world.elapsed += effectiveStats(a).cooldown;
   attack(world, a);
   assert.equal(world.monsters[0].hp, 0);
   assert.equal(a.xp, MONSTERS.wolf.xp); assert.equal(b.xp, MONSTERS.wolf.xp);
   assert.equal(world.kills, 1); assert.equal(world.criticalSave, true);
-  world.elapsed += PLAYER.attackCooldown; attack(world, b);
+  world.elapsed += effectiveStats(a).cooldown; attack(world, b);
   assert.equal(world.kills, 1); assert.equal(a.gold, PLAYER.startingGold + MONSTERS.wolf.gold);
 });
 
 test('attacks check direction and range and grant levels', () => {
   const world = combatWorld(), p = world.join('a', 'A', 'ranger');
   world.random = () => .5;
-  const m = world.monsters[0]; m.x = p.x + 40; m.y = p.y; m.hp = 24;
-  p.angle = Math.PI; attack(world, p); assert.equal(m.hp, 24);
-  world.elapsed += 500; p.angle = 0; p.xp = 70; attack(world, p);
+  const m = world.monsters[0]; m.x = p.x + 40; m.y = p.y; m.hp = 12;
+  p.angle = Math.PI; attack(world, p); assert.equal(m.hp, 12);
+  world.elapsed += effectiveStats(p).cooldown; p.angle = 0; p.xp = 70; attack(world, p);
   assert.equal(p.level, 2); assert.equal(p.xp, 14); assert.equal(p.maxHp, 132);
 });
 

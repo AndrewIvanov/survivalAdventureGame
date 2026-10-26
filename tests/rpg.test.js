@@ -17,11 +17,11 @@ function setup(classId = 'warrior') {
 }
 function near(p, npcId) { const npc = NPCS.find(n => n.id === npcId); p.x = npc.x + 35; p.y = npc.y + 25; }
 
-test('three classes have distinct stats and correct starter weapons', () => {
+test('three classes have distinct stats and a starter axe for gathering', () => {
   for (const [id, cls] of Object.entries(CLASSES)) {
     const { p } = setup(id);
     assert.equal(p.classId, id); assert.equal(p.maxHp, cls.hp); assert.equal(p.maxMana, cls.mana);
-    assert.equal(p.inventory.find(i => i.id === p.equipment.weapon).baseId, cls.weapon);
+    assert.equal(p.inventory.find(i => i.id === p.equipment.weapon).baseId, 'axe');
     assert.equal(p.inventory.filter(i => i.baseId === 'health')[0].quantity, 3);
   }
 });
@@ -32,7 +32,7 @@ test('stage 1 saves migrate once, preserve progress, and permit one class choice
   for (const key of ['inventory', 'equipment', 'classId', 'classChosen', 'attributes', 'abilityRanks', 'cooldowns']) delete legacy.players[0][key];
   const migrated = new GameWorld(legacy); const hero = migrated.join('a', 'Не менять', 'sage');
   assert.equal(hero.level, 4); assert.equal(hero.xp, 42); assert.equal(hero.gold, 90); assert.equal(hero.kills, 7);
-  assert.equal(hero.statPoints, 9); assert.equal(hero.skillPoints, 3); assert.equal(hero.classChosen, false);
+  assert.equal(hero.statPoints, 9); assert.equal(hero.skillPoints, 9); assert.equal(hero.classChosen, false);
   assert.throws(() => rpgAction(migrated, hero, { type: 'class', classId: 'constructor' }));
   rpgAction(migrated, hero, { type: 'class', classId: 'mage' });
   assert.equal(hero.classId, 'mage'); assert.equal(hero.maxHp, 121); assert.equal(hero.inventory.length, 3);
@@ -43,10 +43,11 @@ test('stage 1 saves migrate once, preserve progress, and permit one class choice
 
 test('levels grant spendable attributes and ability ranks; forged points rejected', () => {
   const { world, p } = setup(); grantExperience(world, p, 80);
-  assert.equal(p.level, 2); assert.equal(p.statPoints, 3); assert.equal(p.skillPoints, 1);
+  assert.equal(p.level, 2); assert.equal(p.statPoints, 3); assert.equal(p.skillPoints, 3);
   const hp = p.maxHp;
   rpgAction(world, p, { type: 'attribute', attribute: 'vitality' }); assert.equal(p.maxHp, hp + 8);
   rpgAction(world, p, { type: 'skill', key: 'q' }); assert.equal(p.abilityRanks.q, 2);
+  rpgAction(world, p, { type: 'skill', key: 'q', count: 2 });
   assert.throws(() => rpgAction(world, p, { type: 'skill', key: 'q' }));
   assert.throws(() => rpgAction(world, p, { type: 'attribute', attribute: '__proto__' }));
 });
@@ -75,8 +76,9 @@ test('shop validates NPC distance and funds, upgrades and selling affect one ite
   const potion = p.inventory.find(i => i.baseId === 'health');
   rpgAction(world, p, { type: 'sell', npcId: 'merchant', itemId: potion.id }); assert.equal(p.gold, 94); assert.equal(potion.quantity, 3);
   assert.throws(() => rpgAction(world, p, { type: 'sell', npcId: 'merchant', itemId: p.equipment.weapon }));
+  for (const id of ['wood','ore']) { const material=makeItem(id); material.quantity=20; addItem(p,material); }
   near(p, 'smith'); rpgAction(world, p, { type: 'upgrade', npcId: 'smith' });
-  assert.equal(p.gold, 74); assert.equal(effectiveStats(p).damage, 28);
+  assert.equal(p.gold, 74); assert.equal(effectiveStats(p).damage, 16);
   p.gold = 0; assert.throws(() => rpgAction(world, p, { type: 'buy', npcId: 'smith', baseId: 'sword' }));
 });
 
@@ -126,7 +128,7 @@ test('quests track cooperative kills, reward once and persist both rewards and c
 test('ability costs, cooldowns, invalid keys, and warrior area attack are authoritative', () => {
   const { world, p } = setup(); const m = world.monsters[0]; m.x = p.x + 50; m.y = p.y; m.hp = 200;
   castAbility(world, p, { key: 'q', x: m.x, y: m.y });
-  assert.equal(p.mana, 80); assert.ok(m.hp < 150);
+  assert.equal(p.mana, 80); assert.ok(m.hp < 180);
   const mana = p.mana; assert.throws(() => castAbility(world, p, { key: 'q', x: m.x, y: m.y })); assert.equal(p.mana, mana);
   assert.throws(() => castAbility(world, p, { key: 'constructor', x: 0, y: 0 }));
   p.mana = 0; assert.throws(() => castAbility(world, p, { key: 'r', x: 0, y: 0 }));
@@ -135,6 +137,7 @@ test('ability costs, cooldowns, invalid keys, and warrior area attack are author
 
 test('ranged attacks hit server targets; ice zones slow and expire', () => {
   const { world, p } = setup('mage');
+  const wand = addItem(p, makeItem('staff')); rpgAction(world,p,{type:'equip',itemId:wand.id});
   const m = world.monsters[0]; m.x = p.x + 150; m.y = p.y; m.hp = 200; p.angle = 0;
   attack(world, p); assert.equal(world.projectiles.length, 1); assert.equal(m.hp, 200);
   for (let i = 0; i < 10; i++) updateProjectiles(world, .05);

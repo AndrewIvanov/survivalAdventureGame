@@ -11,6 +11,7 @@ import { SURVIVAL, CYCLE_MS } from '../shared/survival.js';
 import { spawnMonster } from '../server/spawns.js';
 import { damageMonster, damagePlayer } from '../server/combat.js';
 import { REVIVAL } from '../shared/revival.js';
+import { NPCS } from '../shared/rpg.js';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const request = (socket, event, data) => new Promise((resolve, reject) => {
@@ -78,6 +79,47 @@ async function waitUntil(check, timeout = 3000) {
   while (Date.now() < until) { if (check()) return; await delay(30); }
   assert.fail('Timed out waiting for synchronized state');
 }
+
+test('cooperative harvesting has a shared finite stock, crafting and fences persist, and tips stay dismissed', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'village-craft-')), database = path.join(directory, 'world.sqlite');
+  let server, a, b;
+  try {
+    server = await createGameServer({ database }); let { port } = await server.listen(0, '127.0.0.1');
+    a = await connect(port, 'w'); b = await connect(port, 'y');
+    const created = await request(a, 'world:enter', { mode: 'create', name: 'Ремесленник' });
+    const joined = await request(b, 'world:enter', { mode: 'join', code: created.state.code, name: 'Строитель' });
+    assert.equal(created.state.players[0].gold, 0); assert.equal(created.state.players[0].inventory[0].baseId, 'axe');
+    const world = server.worlds.get(created.state.id), tree = world.resourceNodes[0];
+    const pa = world.players.get(created.playerId), pb = world.players.get(joined.playerId);
+    for (const player of [pa, pb]) { player.x = tree.x + 60; player.y = tree.y; }
+    const first = await Promise.all([request(a, 'rpg:action', { type: 'resource:harvest', nodeId: tree.id }), request(b, 'rpg:action', { type: 'resource:harvest', nodeId: tree.id })]);
+    assert.ok(first.every(r => r.ok)); assert.equal(world.resourceState[tree.id].remaining, 1);
+    world.elapsed += 1000; await delay(85);
+    const last = await Promise.all([request(a, 'rpg:action', { type: 'resource:harvest', nodeId: tree.id }), request(b, 'rpg:action', { type: 'resource:harvest', nodeId: tree.id })]);
+    assert.equal(last.filter(r => r.ok).length, 1); assert.equal(world.resourceState[tree.id].remaining, 0);
+    const winnerSocket = last[0].ok ? a : b, builderSocket = last[0].ok ? b : a;
+    const winner = last[0].ok ? pa : pb, builder = last[0].ok ? pb : pa;
+    const mill = NPCS.find(n => n.id === 'lumberjack');
+    for (const player of [winner, builder]) { player.x = mill.x + 30; player.y = mill.y + 30; }
+    await delay(85);
+    assert.equal((await request(winnerSocket, 'rpg:action', { type: 'craft', npcId: 'lumberjack', recipeId: 'sword' })).ok, true);
+    assert.equal((await request(builderSocket, 'rpg:action', { type: 'craft', npcId: 'lumberjack', recipeId: 'fenceKit' })).ok, true);
+    builder.x = 1600; builder.y = 1450; await delay(85);
+    assert.equal((await request(builderSocket, 'rpg:action', { type: 'build:place', x: 1632, y: 1472 })).ok, true);
+    assert.equal(world.structures.length, 1);
+    assert.equal((await request(a, 'ui:notices', { keys: ['banner:night-start', 'banner:night-start', 'hint:resource:tree'] })).ok, true);
+    assert.equal((await request(a, 'ui:notices', { keys: [123] })).ok, false);
+    const id = world.structures[0].id, winnerId = winner.id;
+    a.disconnect(); b.disconnect(); await server.close();
+    server = await createGameServer({ database }); ({ port } = await server.listen(0, '127.0.0.1'));
+    a = await connect(port, 'w');
+    const restored = await request(a, 'world:enter', { mode: 'join', code: world.code, name: 'Ремесленник' });
+    assert.equal(restored.state.structures[0].id, id);
+    assert.equal(restored.state.players.find(p => p.id === winnerId).inventory.find(i => i.id === restored.state.players.find(p => p.id === winnerId).equipment.weapon).baseId, 'sword');
+    assert.deepEqual(restored.state.players.find(p => p.id === pa.id).seenNotices, ['banner:night-start', 'hint:resource:tree']);
+    assert.equal(server.worlds.get(world.id).resourceState[tree.id].remaining, 0);
+  } finally { a?.disconnect(); b?.disconnect(); await server?.close(); await rm(directory, { recursive: true, force: true }); }
+});
 
 test('two sockets rescue a fallen hero through a saved gravestone after a server restart', { timeout: 15000 }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'village-revive-'));
@@ -283,7 +325,7 @@ test('RPG protocol: mixed classes, projectile damage, cooperative quest progress
   }
 });
 
-test('survival protocol synchronizes second-night boss, clock, village damage, reconnect and restart', { timeout: 15000 }, async () => {
+test('survival protocol synchronizes third-night boss, clock, village damage, reconnect and restart', { timeout: 15000 }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'village-night-'));
   const database = path.join(directory, 'survival.sqlite');
   let server, a, b;
@@ -294,9 +336,9 @@ test('survival protocol synchronizes second-night boss, clock, village damage, r
     const joined = await request(b, 'world:enter', { mode: 'join', name: 'Друг', code: created.state.code });
     const world = server.worlds.get(created.state.id);
     let sa, sb; a.on('state', s => { sa = s; }); b.on('state', s => { sb = s; });
-    world.survival.clockMs = CYCLE_MS + SURVIVAL.dayMs - 50;
+    world.survival.clockMs = 2 * CYCLE_MS + SURVIVAL.dayMs - 50;
     await waitUntil(() => sa?.survival.phase === 'night' && sb?.survival.wave.bossSpawned);
-    assert.equal(sa.survival.nightNumber, 2); assert.equal(sa.survival.wave.id, sb.survival.wave.id);
+    assert.equal(sa.survival.nightNumber, 3); assert.equal(sa.survival.wave.id, sb.survival.wave.id);
     const boss = world.monsters.find(m => m.kind === 'guardian');
     assert.ok(sa.monsters.some(m => m.id === boss.id)); assert.ok(sb.monsters.some(m => m.id === boss.id));
     world.village.hp = 700;
@@ -332,12 +374,12 @@ test('cooperative day skip, shared game over, durable defeat and a fresh 50-gold
     a = await connect(port, 'j'); b = await connect(port, 'k');
     const created = await request(a, 'world:enter', { mode: 'create', name: 'Первый' });
     const joined = await request(b, 'world:enter', { mode: 'join', code: created.state.code, name: 'Второй' });
-    assert.equal(created.state.players[0].gold, 50);
-    assert.equal(joined.state.players.find(p => p.id === joined.playerId).gold, 50);
+    assert.equal(created.state.players[0].gold, 0);
+    assert.equal(joined.state.players.find(p => p.id === joined.playerId).gold, 0);
     const firstVote = await request(a, 'rpg:action', { type: 'day:skip', ready: true });
     assert.equal(firstVote.state.survival.phase, 'day'); assert.deepEqual(firstVote.state.survival.skipDayVotes, [created.playerId]);
     const agreed = await request(b, 'rpg:action', { type: 'day:skip', ready: true });
-    assert.equal(agreed.ok, true); assert.equal(agreed.state.survival.phase, 'night'); assert.equal(agreed.state.survival.wave.total, 40);
+    assert.equal(agreed.ok, true); assert.equal(agreed.state.survival.phase, 'night'); assert.equal(agreed.state.survival.wave.total, 50);
     const world = server.worlds.get(created.state.id), pa = world.players.get(created.playerId), pb = world.players.get(joined.playerId);
     let stateA, stateB; a.on('state', state => { stateA = state; }); b.on('state', state => { stateB = state; });
     const monster = world.monsters[0]; damagePlayer(world, monster, pa, 99999);
@@ -355,7 +397,7 @@ test('cooperative day skip, shared game over, durable defeat and a fresh 50-gold
     assert.equal(restored.state.players.find(p => p.id === created.playerId).hp, 0);
     const fresh = await request(a, 'world:enter', { mode: 'create', name: 'Новый путь' });
     assert.equal(fresh.ok, true); assert.notEqual(fresh.state.id, world.id); assert.equal(fresh.state.gameOver, null);
-    assert.equal(fresh.state.players[0].gold, 50); assert.equal(fresh.state.survival.day, 1);
+    assert.equal(fresh.state.players[0].gold, 0); assert.equal(fresh.state.survival.day, 1);
     assert.ok((await server.store.load(world.code)).gameOver);
   } finally {
     a?.disconnect(); b?.disconnect(); await server?.close(); await rm(directory, { recursive: true, force: true });

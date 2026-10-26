@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength, waveSize } from '../shared/survival.js';
+import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength, waveSize, bossNight } from '../shared/survival.js';
 import { MONSTERS } from '../shared/config.js';
 import { spawnMonster } from './spawns.js';
 import { spawnGuardian } from './boss.js';
@@ -7,7 +7,7 @@ import { grantExperience } from './progression.js';
 import { progressQuests } from './quests.js';
 
 export function initializeSurvival(saved) {
-  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 4 };
+  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 5 };
   if (saved && (saved.rulesVersion || 1) < 2) {
     const oldDay = Math.floor(saved.clockMs / 600000), offset = saved.clockMs % 600000;
     state.clockMs = oldDay * CYCLE_MS + (offset < 420000 ? offset / 420000 * SURVIVAL.dayMs : SURVIVAL.dayMs + (offset - 420000) / 180000 * SURVIVAL.nightMs);
@@ -25,6 +25,11 @@ export function initializeSurvival(saved) {
     state.wave.total = waveSize(state.wave.night);
     state.wave.spawned = Math.min(state.wave.spawned, state.wave.total);
   }
+  if (saved && (saved.rulesVersion || 1) < 5 && state.wave?.status === 'active') {
+    state.wave.total = 50; state.wave.spawned = Math.min(state.wave.spawned, 50);
+    state.wave.bossRequired = bossNight(state.wave.night);
+    if (!state.wave.bossRequired) { state.wave.bossSpawned = false; state.wave.bossDefeated = false; }
+  }
   return state;
 }
 
@@ -32,7 +37,7 @@ export function beginNight(world, night) {
   const state = world.survival;
   if (state.lastNight >= night) return;
   state.lastNight = night; world.daySkipVotes.clear();
-  state.wave = { id: randomUUID(), night, status: 'active', total: waveSize(night), spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: night % 2 === 0, bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
+  state.wave = { id: randomUUID(), night, status: 'active', total: waveSize(night), spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: bossNight(night), bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
   world.events.push({ type: 'night-start', night, boss: state.wave.bossRequired }); world.criticalSave = true;
 }
 
@@ -83,6 +88,7 @@ export function resolveWave(world) {
 
 function spawnBatch(world) {
   const wave = world.survival.wave;
+  if (wave?.status === 'active' && wave.bossRequired && !wave.bossSpawned) { spawnGuardian(world, wave); wave.bossSpawned = true; world.criticalSave = true; }
   if (!wave || wave.status !== 'active' || wave.spawned >= wave.total || world.elapsed < wave.nextSpawnAt) return;
   const origins = [[2040, 1152], [1030, 1152], [1536, 650], [1536, 1660]];
   const active = world.monsters.filter(m => m.hp > 0 && (m.raidId || m.summonOwner)).length;
@@ -98,7 +104,6 @@ function spawnBatch(world) {
     spawnMonster(world, kind, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius, { hp, maxHp: hp, damage: Math.round(config.damage * scale.damage * (elite ? 1.2 : 1)), raidId: wave.id, raidNight: wave.night, objective: 'hunt', elite });
     wave.spawned++;
   }
-  if (wave.bossRequired && !wave.bossSpawned && active + count < SURVIVAL.maxRaiders) { spawnGuardian(world, wave); wave.bossSpawned = true; }
   wave.nextSpawnAt = wave.startedAt + wave.spawned / wave.total * SURVIVAL.nightMs;
   if (count) world.criticalSave = true;
 }
