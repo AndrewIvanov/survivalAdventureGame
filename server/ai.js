@@ -20,6 +20,7 @@ export function updateMonsters(world, dt) {
     }
     if (distance({ x: monster.homeX, y: monster.homeY }, monster) > 430) target = null;
     let tx, ty, speed = config.speed;
+    if (monster.slowUntil > world.elapsed) speed *= .4;
     if (target) {
       monster.targetId = target.id;
       monster.state = nearest <= config.range ? 'attack' : 'chase';

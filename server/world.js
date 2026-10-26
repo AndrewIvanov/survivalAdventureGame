@@ -1,9 +1,14 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { WORLD, PLAYER, MONSTERS, distance, inVillage, clamp } from '../shared/config.js';
 import { createMap, createCollisionGrid, canStand, moveEntity, monsterSpawns, seeded } from '../shared/map.js';
-import { attack } from './combat.js';
+import { attack, updateProjectiles } from './combat.js';
 import { updateMonsters } from './ai.js';
 import { grantExperience } from './progression.js';
+import { initializeRpg, refreshStats } from './inventory.js';
+import { effectiveStats } from '../shared/rpg.js';
+import { initializeChests } from './rpg.js';
+import { progressQuests } from './quests.js';
+import { updateZones } from './abilities.js';
 
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const roomCode = () => [...randomBytes(6)].map(n => codeAlphabet[n % codeAlphabet.length]).join('');
@@ -20,6 +25,10 @@ export class GameWorld {
     this.elapsed = saved?.elapsed || 0;
     this.kills = saved?.kills || 0;
     this.players = new Map((saved?.players || []).map(p => [p.id, { ...p, online: false, input: {}, inputAt: 0, lastAttack: -1000, lastDash: -3000 }]));
+    for (const player of this.players.values()) initializeRpg(player, 'warrior', true);
+    this.chests = initializeChests(saved?.chests);
+    this.loot = saved?.loot || [];
+    this.projectiles = []; this.projectilePool = []; this.zones = [];
     this.monsters = saved?.monsters || monsterSpawns.map(([x, y, kind], i) => {
       let point = { x, y };
       for (let r = 0; r < 200 && !canStand(point.x, point.y, this.grid, 14); r += 8) point = { x: x + Math.cos(r) * r, y: y + Math.sin(r) * r };
@@ -30,7 +39,7 @@ export class GameWorld {
     this.savedAt = null;
   }
 
-  join(id, name, appearance) {
+  join(id, name, appearance, classId = 'warrior') {
     let player = this.players.get(id);
     if (!player) {
       if (this.players.size >= 2) throw new Error('В этом мире уже есть два героя. Создайте новый мир.');
@@ -40,6 +49,7 @@ export class GameWorld {
         explored: ['village'], angle: -Math.PI / 2, respawnAt: 0, invulnerableUntil: 0,
         lastAttack: -1000, lastDash: -3000, lastHurt: -10000,
       };
+      initializeRpg(player, classId);
       this.players.set(id, player);
     }
     player.online = true; player.input = {}; player.inputAt = 0;
@@ -85,6 +95,7 @@ export class GameWorld {
       if (p.hp <= 0) {
         if (this.elapsed >= p.respawnAt) {
           p.x = WORLD.spawn.x; p.y = WORLD.spawn.y; p.hp = p.maxHp;
+          p.mana = p.maxMana;
           p.invulnerableUntil = this.elapsed + 3000;
           this.events.push({ type: 'respawn', id: p.id });
           this.criticalSave = true;
@@ -92,19 +103,24 @@ export class GameWorld {
         continue;
       }
       const input = now - p.inputAt < 300 ? p.input : {};
-      let dx = (input.x || 0) * PLAYER.speed * dt, dy = (input.y || 0) * PLAYER.speed * dt;
+      const stats = effectiveStats(p);
+      let dx = (input.x || 0) * stats.speed * dt, dy = (input.y || 0) * stats.speed * dt;
       if (this.elapsed < p.dashUntil) { dx = Math.cos(p.dashAngle) * 650 * dt; dy = Math.sin(p.dashAngle) * 650 * dt; }
       this.move(p, dx, dy);
       if (input.attack) attack(this, p);
       if (inVillage(p) && this.elapsed - p.lastHurt > 3000) p.hp = Math.min(p.maxHp, p.hp + 12 * dt);
+      p.mana = Math.min(p.maxMana, p.mana + (inVillage(p) ? 12 : 5) * dt);
       if (!inVillage(p) && !p.explored.includes('forest')) {
         p.explored.push('forest');
         grantExperience(this, p, 15);
+        progressQuests(this, p, 'explore');
         this.events.push({ type: 'discover', id: p.id, name: 'Тёмный лес', xp: 15 });
         this.criticalSave = true;
       }
     }
+    updateProjectiles(this, dt); updateZones(this);
     updateMonsters(this, dt);
+    this.loot = this.loot.filter(l => l.expiresAt > this.elapsed);
   }
 
   snapshot(playerId) {
@@ -113,14 +129,17 @@ export class GameWorld {
       id: this.id, code: this.code, name: this.name, elapsed: this.elapsed, kills: this.kills, savedAt: this.savedAt,
       players: [...this.players.values()].map(({ input, inputAt, ...p }) => ({ ...p, hp: Math.ceil(p.hp) })),
       monsters: this.monsters.filter(m => m.hp > 0 && (!player || distance(player, m) < 1150)).map(m => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: Math.ceil(m.hp), maxHp: m.maxHp, angle: m.angle, state: m.state })),
+      loot: this.loot.filter(l => !player || distance(l, player) < 1000), chests: this.chests,
+      projectiles: this.projectiles.map(({ hit, ...p }) => p), zones: this.zones,
     };
   }
 
   serialize() {
     return {
-      version: 1, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
+      version: 2, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
       players: [...this.players.values()].map(({ input, inputAt, online, dashUntil, ...p }) => p),
       monsters: this.monsters.map(({ targetId, ...m }) => m),
+      chests: this.chests, loot: this.loot,
       village: { level: 1, buildings: this.map.buildings.map(b => b.id) }, unlockedRegions: ['village', 'forest'],
     };
   }

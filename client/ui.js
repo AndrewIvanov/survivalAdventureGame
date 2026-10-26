@@ -1,5 +1,6 @@
 import { WORLD, PLAYER, inVillage, levelXp } from '../shared/config.js';
 import { heroToken } from './network.js';
+import { RpgInterface } from './rpg-ui.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
@@ -30,7 +31,7 @@ export class Interface {
   constructor(network, scene, game) {
     this.net = network; this.scene = scene; this.game = game; this.appearance = 'ranger'; this.mode = 'create'; this.panel = null;
     this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null;
-    this.mount(); this.bind();
+    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.bind();
   }
   mount() {
     document.querySelector('#app').innerHTML = `
@@ -52,7 +53,7 @@ export class Interface {
       </section>
 
       <section id="hud" class="hud" hidden aria-label="Интерфейс игры">
-        <div class="hero-block panel"><div id="hero-portrait" class="hero-portrait"><span class="portrait-art ranger"></span><b id="hero-level">1</b></div><div class="hero-summary"><div class="hero-title"><strong id="hero-label">Странник</strong><span>ИСКАТЕЛЬ</span></div><div class="health-track"><div id="hp-fill"></div><span id="hp-label">120 / 120</span></div><div class="hero-xp"><div id="xp-fill"></div></div><div class="xp-caption"><span id="xp-label">0 / 80 XP</span><span id="gold-label">0 золота</span></div></div><button id="hero-details" class="icon-button" aria-label="Характеристики героя" title="Герой · I">${icon('shield')}</button></div>
+        <div class="hero-block panel"><div id="hero-portrait" class="hero-portrait"><span class="portrait-art ranger"></span><b id="hero-level">1</b></div><div class="hero-summary"><div class="hero-title"><strong id="hero-label">Странник</strong><span>ИСКАТЕЛЬ</span></div><div class="health-track"><div id="hp-fill"></div><span id="hp-label">120 / 120</span></div><div class="hero-xp"><div id="xp-fill"></div></div><div class="xp-caption"><span id="xp-label">0 / 80 XP</span><span id="gold-label">0 золота</span></div></div><button id="hero-details" class="icon-button" aria-label="Характеристики героя" title="Рюкзак · I">${icon('shield')}</button></div>
         <div class="location-label"><div class="eyebrow" id="biome-tag">БЕЗОПАСНАЯ ТЕРРИТОРИЯ</div><h2 id="location-title">Тихая сосна</h2><div class="location-rule"><span></span>${icon('tree')}<span></span></div></div>
         <div class="minimap-panel panel"><div class="minimap-heading"><span>${icon('compass')} ОКРЕСТНОСТИ</span><button id="map-open" class="small-key" aria-label="Открыть карту">M</button></div><button id="minimap-button" class="minimap-button" aria-label="Открыть карту мира"><canvas id="minimap" width="222" height="157"></canvas><span class="map-north">N</span></button><div class="minimap-footer"><span>${icon('sun')} День · начало пути</span><span id="coords">48, 40</span></div></div>
         <div class="companion panel"><div class="companion-icon">${icon('people')}</div><div id="companion-content"><strong>Место для друга</strong><span>Вместе безопаснее</span></div><span id="party-count" class="party-count">1/2</span></div>
@@ -81,7 +82,7 @@ export class Interface {
     for (const id of ['hero-details', 'character-button']) this.$(id).onclick = () => this.openPanel('hero');
     this.$('settings-button').onclick = () => this.openPanel('settings');
     this.$('help-button').onclick = () => this.openPanel('help');
-    this.$('attack-info').onclick = () => this.toast('Удерживайте левую кнопку мыши над игровым миром. Удар направлен к курсору.');
+    this.$('attack-info').onclick = () => this.toast('Удерживайте ЛКМ над миром. Воин бьёт мечом, маг и лучник стреляют в сторону курсора.');
     this.$('dash-button').onclick = () => this.net.dash();
     this.$('invite-button').onclick = () => this.copy(this.state?.code, 'Код мира скопирован. Отправьте его другу вместе с адресом игры.');
     this.$('fullscreen-button').onclick = async () => {
@@ -101,7 +102,7 @@ export class Interface {
       if (event.code === 'Escape') { event.preventDefault(); this.panel ? this.closePanel() : this.net.active && this.openPanel('settings'); }
       if (!this.net.active || event.repeat) return;
       if (event.code === 'KeyM') { event.preventDefault(); this.panel === 'map' ? this.closePanel() : this.openPanel('map'); }
-      if (event.code === 'KeyI') { event.preventDefault(); this.panel === 'hero' ? this.closePanel() : this.openPanel('hero'); }
+      if (event.code === 'KeyI') { event.preventDefault(); this.panel === 'inventory' ? this.closePanel() : this.openPanel('inventory'); }
     });
     this.net.on('connection', ({ connected }) => {
       this.connected = connected;
@@ -154,7 +155,7 @@ export class Interface {
     const name = this.$('hero-name').value.trim();
     localStorage.setItem('village-survival:name', name);
     try {
-      await this.net.enter({ mode: code ? 'join' : this.mode, code: code || this.$('room-code').value, name, appearance: this.appearance });
+      await this.net.enter({ mode: code ? 'join' : this.mode, code: code || this.$('room-code').value, name, appearance: this.appearance, classId: this.rpg.classId });
     } catch (error) { this.$('form-error').textContent = error.message; this.$('form-error').hidden = false; }
     finally { button.disabled = false; }
   }
@@ -199,7 +200,7 @@ export class Interface {
     if (state.savedAt) this.$('save-status').innerHTML = `${icon('save')} Сохранено в ${new Date(state.savedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
     this.drawMap(this.$('minimap'), false);
     if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
-    if (this.panel === 'hero') this.updateHeroStats(me);
+    this.rpg.render(state, me);
   }
   drawMap(canvas, full) {
     if (!canvas || !this.state) return;
@@ -235,6 +236,7 @@ export class Interface {
     for (let y = 0; y < height; y += height / 6) { c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke(); }
   }
   openPanel(type) {
+    if (this.rpg.handles(type)) return this.rpg.open(type);
     this.modalReturnFocus = document.activeElement;
     this.panel = type; this.scene.pausedInput = true;
     this.scene.input?.keyboard?.resetKeys();
@@ -242,16 +244,14 @@ export class Interface {
     const title = { map: 'Карта окрестностей', hero: 'Ваш герой', settings: 'Небольшая передышка', help: 'Находите свой путь', restore: 'Вернуться к своей истории' }[type];
     const body = {
       map: `<p class="muted">Забытые земли · Деревня и Тёмный лес</p><canvas id="world-map" width="768" height="518"></canvas><div class="map-legend"><span><i class="legend-dot hero-dot"></i>Вы</span><span><i class="legend-dot ally-dot"></i>Напарник</span><span><i class="legend-dot enemy-dot"></i>Противник</span><span>Двигайтесь по тропам. В деревне безопасно.</span></div>`,
-      hero: `<div class="character-sheet"><div class="character-art"><span id="sheet-portrait" class="portrait-art ranger"></span>${icon('tree')}</div><div><div class="eyebrow">ИСКАТЕЛЬ ЗАБЫТЫХ ЗЕМЕЛЬ</div><h3 id="sheet-name"></h3><p class="muted" id="sheet-level"></p><div id="sheet-stats" class="sheet-stats"></div></div></div><p class="panel-footnote">Опыт даётся за победу над врагами и исследование леса. Каждый уровень увеличивает здоровье и силу атаки.</p>`,
       settings: `<p class="muted">Мир продолжает жить, пока вы открываете меню.<br>Для отдыха вернитесь в безопасную деревню.</p><div class="settings-row"><label for="effects-toggle">Эффекты и встряска камеры</label><input id="effects-toggle" type="checkbox" ${this.scene.effectsEnabled ? 'checked' : ''}></div><button id="save-now" class="secondary-button">${icon('save')} Сохранить сейчас</button><button id="backup-key" class="secondary-button">${icon('copy')} Скопировать ключ героя</button><p class="panel-footnote">Ключ возвращает вашего героя на другом компьютере. Храните его у себя и не отправляйте другим игрокам.</p><button id="resume-button" class="primary-button">Продолжить путешествие ${icon('arrow')}</button><button id="leave-world" class="text-button">${icon('door')} Сохранить и выйти в меню</button>`,
-      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>I</kbd> Характеристики героя</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ESC</kbd> Игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. После смерти вы вернётесь к фонтану через 5 секунд без потери опыта.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
+      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R</kbd> Способности в сторону курсора</span><span><kbd>F</kbd> NPC, добыча, сундуки</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ESC</kbd> Игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. После смерти вы вернётесь к фонтану через 5 секунд без потери опыта.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
       restore: `<p class="muted">Введите сохранённый ключ героя, чтобы открыть его миры на этом устройстве.</p><form id="restore-form"><label class="field-label" for="restore-input">ЛИЧНЫЙ КЛЮЧ ГЕРОЯ</label><input id="restore-input" required minlength="32" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Вставьте ключ"><p class="panel-footnote">Текущий ключ будет заменён только в этом браузере. Если он нужен, сначала скопируйте его.</p><button type="button" id="copy-current-key" class="secondary-button">${icon('copy')} Скопировать текущий ключ</button><button type="submit" class="primary-button">Восстановить героя ${icon('arrow')}</button></form>`,
     }[type];
     this.$('modal').classList.toggle('wide', type === 'map');
     this.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${icon('close')}</button></div>${body}`;
     this.$('close-modal').onclick = () => this.closePanel(); this.$('close-modal').focus();
     if (type === 'map') this.drawMap(this.$('world-map'), true);
-    if (type === 'hero' && this.state) this.updateHeroStats(this.state.players.find(p => p.id === this.net.playerId));
     if (type === 'settings') {
       this.$('effects-toggle').onchange = event => { this.scene.effectsEnabled = event.target.checked; };
       this.$('resume-button').onclick = () => this.closePanel();
@@ -271,13 +271,6 @@ export class Interface {
         this.net.socket.disconnect(); this.net.socket.auth.token = token; this.net.socket.connect(); this.closePanel();
       };
     }
-  }
-  updateHeroStats(me) {
-    if (!me || !this.$('sheet-name')) return;
-    this.$('sheet-name').textContent = me.name;
-    this.$('sheet-level').textContent = `Уровень ${me.level} · ${me.xp} / ${levelXp(me.level)} опыта`;
-    this.$('sheet-portrait').className = `portrait-art ${me.appearance}`;
-    this.$('sheet-stats').innerHTML = `<div><span>Здоровье</span><b>${me.hp} / ${me.maxHp}</b></div><div><span>Сила атаки</span><b>${PLAYER.damage + (me.level - 1) * 4}</b></div><div><span>Критический удар</span><b>12%</b></div><div><span>Побеждено врагов</span><b>${me.kills}</b></div><div><span>Золото</span><b>${me.gold}</b></div><div><span>Открыто территорий</span><b>${me.explored.length} / 2</b></div>`;
   }
   closePanel() {
     this.panel = null; this.$('modal-backdrop').hidden = true;

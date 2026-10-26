@@ -54,7 +54,7 @@ export class SaveStore {
   decode(row) {
     if (checksum(row.state) !== row.checksum) throw new Error('Save checksum mismatch');
     const data = JSON.parse(row.state);
-    if (data.version !== 1 || !Array.isArray(data.players) || !Array.isArray(data.monsters)) throw new Error('Unsupported save format');
+    if (![1, 2].includes(data.version) || !Array.isArray(data.players) || !Array.isArray(data.monsters)) throw new Error('Unsupported save format');
     return data;
   }
 

@@ -6,6 +6,8 @@ import { Server } from 'socket.io';
 import { SaveStore } from './persistence.js';
 import { GameWorld } from './world.js';
 import { TICK_RATE, SNAPSHOT_RATE } from '../shared/config.js';
+import { castAbility } from './abilities.js';
+import { rpgAction } from './rpg.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -14,7 +16,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
   const io = new Server(http, { maxHttpBufferSize: 8192, pingTimeout: 15000 });
   const store = new SaveStore(database), worlds = new Map(), sessions = new Map();
   let vite;
-  app.get('/api/health', (_req, res) => res.json({ ok: true, version: '0.1.0', worlds: worlds.size }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, version: '0.2.0', worlds: worlds.size }));
   if (dev) {
     const { createServer: createViteServer } = await import('vite');
     vite = await createViteServer({ root, server: { middlewareMode: true, hmr: { server: http } }, appType: 'spa' });
@@ -85,7 +87,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
           const old = io.sockets.sockets.get(previous);
           old?.emit('session:replaced'); old?.disconnect(true);
         }
-        const player = world.join(socket.data.playerId, name, data.appearance === 'sage' ? 'sage' : 'ranger');
+        const player = world.join(socket.data.playerId, name, data.appearance === 'sage' ? 'sage' : 'ranger', data.classId);
         worlds.set(world.id, world);
         if (!save(world)) throw new Error('Создание мира остановлено: сохранение недоступно.');
         sessions.set(key, socket.id);
@@ -102,6 +104,18 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       worlds.get(socket.data.worldId)?.input(socket.data.playerId, data, now);
     });
     socket.on('dash', () => worlds.get(socket.data.worldId)?.dash(socket.data.playerId));
+    for (const [event, handler] of [['rpg:action', rpgAction], ['ability', castAbility]]) socket.on(event, (data, ack) => {
+      try {
+        const world = worlds.get(socket.data.worldId);
+        if (!world) throw new Error('Сначала войдите в мир.');
+        const now = Date.now();
+        if (now - (socket.data.lastRpg || 0) < 75) throw new Error('Слишком много действий.');
+        socket.data.lastRpg = now;
+        handler(world, world.players.get(socket.data.playerId), data);
+        if (world.criticalSave && !save(world)) throw new Error('Не удалось сохранить действие.');
+        acknowledge(ack, { ok: true, state: world.snapshot(socket.data.playerId) });
+      } catch (error) { acknowledge(ack, { ok: false, error: error.message }); }
+    });
     socket.on('world:save', ack => {
       const world = worlds.get(socket.data.worldId);
       if (!world) return acknowledge(ack, { ok: false, error: 'Сначала войдите в мир.' });

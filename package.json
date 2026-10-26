@@ -1,9 +1,11 @@
 {
   "name": "village-survival",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "node --watch server/index.js --dev",
     "start": "node server/index.js",
@@ -17,5 +19,7 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1"
   },
-  "devDependencies": { "vite": "^6.1.0" }
+  "devDependencies": {
+    "vite": "^6.1.0"
+  }
 }

@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { WORLD, PLAYER, inVillage, levelXp } from '../../shared/config.js';
 import { createMap, seeded } from '../../shared/map.js';
 import { createTextures, createGround } from './textures.js';
+import { createRpgTextures } from './rpg-art.js';
+import { NPCS, RARITIES, ITEMS, CLASSES, ABILITIES } from '../../shared/rpg.js';
 
 export class WorldScene extends Phaser.Scene {
   constructor(network) {
@@ -10,7 +12,9 @@ export class WorldScene extends Phaser.Scene {
   }
   create() {
     this.map = createMap();
-    createTextures(this); createGround(this, this.map);
+    createTextures(this); createRpgTextures(this); createGround(this, this.map);
+    this.rpgViews = new Map();
+    this.zoneGraphics = this.add.graphics().setDepth(9000);
     this.add.image(0, 0, 'ground').setOrigin(0).setDepth(-1000);
     for (const tree of this.map.trees) this.add.image(tree.x, tree.y, `tree-${tree.variant}`).setOrigin(.5, .9).setScale(tree.scale).setDepth(tree.y + 10);
     for (const rock of this.map.rocks) this.add.image(rock.x, rock.y, `rock-${rock.variant}`).setOrigin(.5, .8).setDepth(rock.y);
@@ -20,6 +24,11 @@ export class WorldScene extends Phaser.Scene {
       this.add.text(b.x, b.y + 37, b.name, { fontFamily: 'Georgia, serif', fontSize: '11px', color: '#eee7c6', stroke: '#293d2e', strokeThickness: 3 }).setOrigin(.5).setAlpha(.8).setDepth(b.y + 22);
     }
     this.add.image(1536, 1152, 'fountain').setOrigin(.5, .72).setDepth(1175);
+    for (const npc of NPCS) {
+      this.add.image(npc.x, npc.y, `hero-${npc.appearance}-0`).setOrigin(.5, .92).setDepth(npc.y);
+      this.add.text(npc.x, npc.y - 62, npc.id === 'hunter' || npc.id === 'elder' ? '!' : '◆', { fontFamily: 'Georgia', fontSize: '20px', color: '#e5ca83', stroke: '#243d2e', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2);
+      this.add.text(npc.x, npc.y + 10, npc.name, { fontFamily: 'Georgia', fontSize: '10px', color: '#eadbb1', stroke: '#253b2b', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2);
+    }
     this.add.image(1880, 1110, 'sign').setOrigin(.5, 1).setDepth(1110);
     this.add.text(1880, 1067, 'ТЁМНЫЙ ЛЕС →', { fontFamily: 'monospace', fontSize: '8px', color: '#3c442d' }).setOrigin(.5).setDepth(1111);
     for (const [x, y] of [[1410, 1080], [1660, 1080], [1420, 1230], [1665, 1230], [1840, 1120], [1220, 1140]]) {
@@ -67,12 +76,14 @@ export class WorldScene extends Phaser.Scene {
   reset() {
     for (const view of this.entities.values()) view.container.destroy();
     this.entities.clear(); this.pausedInput = true;
+    for (const view of this.rpgViews?.values() || []) view.destroy();
+    this.rpgViews?.clear(); this.zoneGraphics?.clear();
     this.cameraTarget.set(1536, 1140);
   }
   makeView(data, player) {
     const shadow = this.add.ellipse(0, 1, player ? 29 : 37, 11, 0x15261c, .4);
     const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player);
-    const sprite = this.add.sprite(0, 0, player ? `hero-${data.appearance}-0` : data.kind).setOrigin(.5, .92);
+    const sprite = this.add.sprite(0, 0, player ? `class-${data.classId || 'warrior'}-${data.appearance}-0` : data.kind).setOrigin(.5, .92);
     const label = this.add.text(0, player ? -55 : -48, player ? data.name : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#b8d5e0', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
     const health = this.add.graphics();
     const container = this.add.container(data.x, data.y, [shadow, ring, sprite, label, health]);
@@ -99,11 +110,50 @@ export class WorldScene extends Phaser.Scene {
       this.tweens.add({ targets: view.container, alpha: 0, duration: 150, onComplete: () => view.container.destroy() });
       this.entities.delete(id);
     }
+    this.syncRpg(state);
+  }
+  syncRpg(state) {
+    const ids = new Set();
+    for (const object of [...(state.chests || []).map(c => ({ ...c, kind: 'chest' })), ...(state.loot || []).map(l => ({ ...l, kind: 'loot' })), ...(state.projectiles || []).map(p => ({ ...p, kind: 'projectile', projectileKind: p.kind }))]) {
+      ids.add(object.id); let view = this.rpgViews.get(object.id);
+      if (!view) {
+        if (object.kind === 'chest') view = this.add.image(object.x, object.y, 'chest').setOrigin(.5, .85);
+        else if (object.kind === 'loot') {
+          const color = Phaser.Display.Color.HexStringToColor(RARITIES[object.item.rarity].color).color;
+          const glow = this.add.circle(0, 0, 12, color, .13), gem = this.add.rectangle(0, 0, 9, 9, color, .9).setRotation(Math.PI / 4);
+          view = this.add.container(object.x, object.y, [glow, gem]);
+        } else {
+          const magic = ['magic', 'fire'].includes(object.projectileKind);
+          view = this.add.container(object.x, object.y, [this.add.rectangle(0, 0, magic ? 14 : 23, magic ? 8 : 3, magic ? object.projectileKind === 'fire' ? 0xf0a45e : 0xb8a7ed : 0xe3d8a2), this.add.circle(magic ? 7 : 11, 0, magic ? 5 : 3, magic ? 0xf3d8ad : 0xe4dec2)]);
+        }
+        this.rpgViews.set(object.id, view);
+      }
+      view.setPosition(object.x, object.y).setDepth(object.y + 3);
+      if (object.kind === 'chest') view.setAlpha(object.claimedBy.includes(this.network.playerId) ? .4 : 1);
+      if (object.kind === 'projectile') { view.setRotation(object.angle); view.projectileData = object; view.receivedAt = this.time.now; }
+    }
+    for (const [id, view] of this.rpgViews) if (!ids.has(id)) { view.destroy(); this.rpgViews.delete(id); }
+    this.zoneGraphics.clear();
+    for (const zone of state.zones || []) {
+      const color = zone.kind === 'ice' ? 0x9eced3 : zone.kind === 'meteor' ? 0xe6a66d : 0xd9cb8c;
+      this.zoneGraphics.fillStyle(color, .09).fillCircle(zone.x, zone.y, zone.radius);
+      this.zoneGraphics.lineStyle(2, color, .6).strokeCircle(zone.x, zone.y, zone.radius);
+    }
+  }
+  cast(key) {
+    if (this.pausedInput || !this.network.active) return;
+    const pointer = this.input.activePointer;
+    const target = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    this.network.ability(key, target.x, target.y).catch(e => this.network.emit('notice', { message: e.message, type: 'error' }));
   }
   update(time, delta) {
     if (!this.cameraTarget) return;
     const me = this.entities.get(this.network.playerId);
     const factor = 1 - Math.exp(-delta / 65);
+    for (const view of this.rpgViews.values()) if (view.projectileData) {
+      const p = view.projectileData, seconds = Math.min(.12, (time - view.receivedAt) / 1000);
+      view.setPosition(p.x + Math.cos(p.angle) * p.speed * seconds, p.y + Math.sin(p.angle) * p.speed * seconds - 15);
+    }
     for (const view of this.entities.values()) {
       const { data, container, sprite } = view;
       const moved = Math.hypot(data.x - container.x, data.y - container.y) > .8;
@@ -112,7 +162,7 @@ export class WorldScene extends Phaser.Scene {
       container.setDepth(container.y + 5);
       sprite.setFlipX(Math.cos(data.angle) < -.15);
       if (view.player) {
-        sprite.setTexture(`hero-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`);
+        sprite.setTexture(`class-${data.classId || 'warrior'}-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`);
         sprite.y = moved && data.hp > 0 ? Math.sin(time / 75) * 1.3 : Math.sin(time / 380) * .5;
       } else sprite.y = moved ? Math.sin(time / 90) * 1.5 : 0;
       sprite.setRotation(data.hp <= 0 ? -1.2 : 0);
@@ -165,6 +215,12 @@ export class WorldScene extends Phaser.Scene {
         const ghost = this.add.image(event.x, event.y, view.sprite.texture.key).setOrigin(.5, .92).setAlpha(.4).setTint(0xc9dcb5).setDepth(event.y);
         this.tweens.add({ targets: ghost, alpha: 0, duration: 350, onComplete: () => ghost.destroy() });
       }
+      if (event.type === 'spell') {
+        const color = event.kind === 'ice' ? 0xb7e3e5 : ['fire', 'meteor'].includes(event.kind) ? 0xe9ab6f : event.kind === 'guard' ? 0xb4c6ac : 0xe8d69a;
+        const circle = this.add.circle(event.x, event.y, event.radius, color, .15).setStrokeStyle(3, color, .8).setDepth(event.y + 40);
+        this.tweens.add({ targets: circle, scale: 1.12, alpha: 0, duration: event.kind === 'guard' ? 800 : 450, onComplete: () => circle.destroy() });
+      }
+      if (event.type === 'heal') this.floatText(event.x, event.y - 50, event.resource === 'hp' ? '+ Здоровье' : '+ Энергия', '#b7d99c', 13);
     }
   }
 }

@@ -130,3 +130,45 @@ test('two real sockets: world creation, movement, team combat, disconnect, rejoi
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('RPG protocol: mixed classes, projectile damage, cooperative quest progress, competing pickup and restart', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'village-rpg-'));
+  const database = path.join(directory, 'rpg.sqlite');
+  let server, a, b;
+  try {
+    server = await createGameServer({ database }); let { port } = await server.listen(0, '127.0.0.1');
+    a = await connect(port, 'm'); b = await connect(port, 'r');
+    const created = await request(a, 'world:enter', { mode: 'create', name: 'Маг', classId: 'mage' });
+    const joined = await request(b, 'world:enter', { mode: 'join', name: 'Лучник', classId: 'archer', code: created.state.code });
+    const world = server.worlds.get(created.state.id), pa = world.players.get(created.playerId), pb = world.players.get(joined.playerId);
+    assert.equal(pa.classId, 'mage'); assert.equal(pb.classId, 'archer');
+    pa.x = pb.x = 1840; pa.y = pb.y = 1140;
+    for (const socket of [a, b]) assert.equal((await request(socket, 'rpg:action', { type: 'quest:accept', npcId: 'hunter', questId: 'wolves' })).ok, true);
+    await delay(90);
+    pa.x = 1930; pa.y = 1152; pb.x = 1940; pb.y = 1172;
+    const m = world.monsters[0]; m.x = 2010; m.y = 1152; m.hp = 20;
+    let stateB; b.on('state', state => { stateB = state; });
+    const cast = await request(a, 'ability', { key: 'q', x: 2010, y: 1152 }); assert.equal(cast.ok, true);
+    await waitUntil(() => stateB?.kills === 1);
+    assert.equal(stateB.players.find(p => p.id === pa.id).quests.wolves.progress, 1);
+    assert.equal(stateB.players.find(p => p.id === pb.id).quests.wolves.progress, 1);
+    const loot = world.loot[0]; pa.x = pb.x = loot.x; pa.y = pb.y = loot.y;
+    const pickups = await Promise.all([request(a, 'rpg:action', { type: 'pickup', lootId: loot.id }), request(b, 'rpg:action', { type: 'pickup', lootId: loot.id })]);
+    assert.equal(pickups.filter(result => result.ok).length, 1); assert.equal(world.loot.length, 0);
+    const inventoryIds = [...pa.inventory, ...pb.inventory].map(i => i.id);
+    assert.equal(new Set(inventoryIds).size, inventoryIds.length);
+    const savedA = JSON.stringify(pa.inventory), savedB = JSON.stringify(pb.inventory), code = world.code;
+    a.disconnect(); b.disconnect(); await delay(100); await server.close();
+    server = await createGameServer({ database }); ({ port } = await server.listen(0, '127.0.0.1'));
+    a = await connect(port, 'm'); b = await connect(port, 'r');
+    const restoredA = await request(a, 'world:enter', { mode: 'join', code, name: 'Маг', classId: 'warrior' });
+    const restoredB = await request(b, 'world:enter', { mode: 'join', code, name: 'Лучник' });
+    const heroA = restoredA.state.players.find(p => p.id === pa.id), heroB = restoredB.state.players.find(p => p.id === pb.id);
+    assert.equal(heroA.classId, 'mage'); assert.equal(heroB.classId, 'archer');
+    assert.equal(JSON.stringify(heroA.inventory), savedA); assert.equal(JSON.stringify(heroB.inventory), savedB);
+    assert.equal(heroA.quests.wolves.progress, 1); assert.equal(heroB.quests.wolves.progress, 1);
+    assert.equal(server.worlds.get(world.id).loot.length, 0);
+  } finally {
+    a?.disconnect(); b?.disconnect(); await server?.close(); await rm(directory, { recursive: true, force: true });
+  }
+});

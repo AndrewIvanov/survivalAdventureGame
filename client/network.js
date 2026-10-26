@@ -55,7 +55,7 @@ export class Network extends EventTarget {
     const result = await this.request('world:enter', data);
     this.playerId = result.playerId;
     this.state = result.state;
-    this.active = { name: data.name, appearance: data.appearance, code: result.state.code };
+    this.active = { name: data.name, appearance: data.appearance, classId: data.classId, code: result.state.code };
     localStorage.setItem('village-survival:last-world', result.state.code);
     this.emit('entered', result);
     this.emit('state', result.state);
@@ -70,4 +70,10 @@ export class Network extends EventTarget {
   dash() { if (this.active && this.socket.connected) this.socket.emit('dash'); }
   save() { return this.request('world:save'); }
   list() { return this.request('worlds:list'); }
+  async action(data) {
+    const result = await this.request('rpg:action', data); this.state = result.state; this.emit('state', result.state); return result;
+  }
+  async ability(key, x, y) {
+    const result = await this.request('ability', { key, x, y }); this.state = result.state; this.emit('state', result.state); return result;
+  }
 }
