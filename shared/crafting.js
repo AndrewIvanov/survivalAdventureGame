@@ -1,4 +1,5 @@
 export const GATHERING = { range: 85, cooldownMs: 850, treeCharges: 3, oreCharges: 4, woodYield: 6, oreYield: 3, respawnMs: 120000 };
+export const WOOD_TRADE = { wood: 100, gold: 1 };
 export const MINE = { id: 'mine', name: 'Северная шахта', x: 770, y: 540 };
 export const ORE_NODES = [[705, 610], [775, 630], [845, 610], [730, 690], [810, 700]].map(([x, y], i) => ({ id: `ore-${i}`, kind: 'ore', name: 'Рудная жила', x, y }));
 export const RECIPES = {

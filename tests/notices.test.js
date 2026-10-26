@@ -16,3 +16,8 @@ test('tips are shown once for an adventure and remain dismissed after reconnect 
 test('changing a number in an informational message does not make it a new tip', () => {
   assert.equal(noticeKey('Уровень 2! Здоровье восстановлено.'), noticeKey('Уровень 100! Здоровье восстановлено.'));
 });
+test('muting notifications does not consume a tip before the user enables them again', () => {
+  const ui = { preferences: { notifications: false }, net: { active: null } }, gate = new NoticeGate(ui);
+  assert.equal(gate.take('banner:night-start'), false); assert.equal(gate.seen.size, 0);
+  ui.preferences.notifications = true; assert.equal(gate.take('banner:night-start'), true);
+});

@@ -30,10 +30,11 @@ export class WorldScene extends Phaser.Scene {
       this.add.text(b.x, b.y + 37, b.name, { fontFamily: 'Georgia, serif', fontSize: '11px', color: '#eee7c6', stroke: '#293d2e', strokeThickness: 3 }).setOrigin(.5).setAlpha(.8).setDepth(b.y + 22);
     }
     this.add.image(1536, 1152, 'fountain').setOrigin(.5, .72).setDepth(1175);
-    this.npcObjects = [];
+    this.npcObjects = []; this.npcMarkers = [];
     for (const npc of NPCS) {
       this.npcObjects.push(this.add.image(npc.x, npc.y, `hero-${npc.appearance}-0`).setOrigin(.5, .92).setDepth(npc.y));
-      this.npcObjects.push(this.add.text(npc.x, npc.y - 62, npc.id === 'hunter' || npc.id === 'elder' ? '!' : '◆', { fontFamily: 'Georgia', fontSize: '20px', color: '#e5ca83', stroke: '#243d2e', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2));
+      const marker = this.add.text(npc.x, npc.y - 62, npc.id === 'hunter' || npc.id === 'elder' ? '!' : '◆', { fontFamily: 'Georgia', fontSize: '20px', color: '#e5ca83', stroke: '#243d2e', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2);
+      this.npcObjects.push(marker); this.npcMarkers.push(marker);
       this.npcObjects.push(this.add.text(npc.x, npc.y + 10, npc.name, { fontFamily: 'Georgia', fontSize: '10px', color: '#eadbb1', stroke: '#253b2b', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2));
     }
     this.add.image(1880, 1110, 'sign').setOrigin(.5, 1).setDepth(1110);
@@ -102,6 +103,7 @@ export class WorldScene extends Phaser.Scene {
   sync(state) {
     if (!this.sys.isActive()) return;
     for (const object of this.npcObjects) object.setVisible(state.survival?.phase !== 'night');
+    for (const marker of this.npcMarkers) marker.setVisible(this.showNotifications !== false && state.survival?.phase !== 'night');
     const visible = new Set();
     for (const data of [...state.players.filter(p => p.online), ...state.monsters, ...(state.allies || [])]) {
       visible.add(data.id);
@@ -205,6 +207,7 @@ export class WorldScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keys.dash)) this.network.dash();
   }
   floatText(x, y, text, color, size = 15) {
+    if (this.showNotifications === false) return;
     const label = this.add.text(x, y, text, { fontFamily: 'Georgia, serif', fontSize: `${size}px`, fontStyle: 'bold', color, stroke: '#1b2b22', strokeThickness: 3 }).setOrigin(.5).setDepth(20000);
     this.tweens.add({ targets: label, y: y - 37, alpha: 0, duration: 1000, ease: 'Cubic.easeOut', onComplete: () => label.destroy() });
   }

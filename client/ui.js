@@ -8,6 +8,8 @@ import { ProgressionInterface } from './progression-ui.js';
 import { MINE } from '../shared/crafting.js';
 import { NPCS } from '../shared/rpg.js';
 import { NoticeGate, noticeKey } from './notices.js';
+import { GamePreferences } from './preferences.js';
+import { PreferencesInterface } from './preferences-ui.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
@@ -30,6 +32,7 @@ const paths = {
   save: '<path d="M4 3h13l4 4v14H3V3Z"/><path d="M7 3v6h9V3M7 21v-8h10v8"/>',
   settings: '<path d="m10 2-1 3-3 1-3-1-2 4 3 2v3l-2 2 2 4 3-1 3 1 1 3h4l1-3 3-1 3 1 2-4-3-2v-3l2-2-2-4-3 1-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/>',
   full: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 4 3c-1 0-1 1-1 2m0 3v1"/>',
   door: '<path d="M9 21H3V3h12v5m-3 7h10m-4-4 4 4-4 4M9 3v18l6-3v-3"/>',
   copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
@@ -43,8 +46,8 @@ const escape = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<
 export class Interface {
   constructor(network, scene, game) {
     this.net = network; this.scene = scene; this.game = game; this.appearance = 'ranger'; this.mode = 'create'; this.panel = null;
-    this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null;
-    this.mount(); this.notices = new NoticeGate(this); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.chat = new ChatInterface(this, { icon }); this.progression = new ProgressionInterface(this, { icon, escape }); this.bind();
+    this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null; this.preferences = new GamePreferences();
+    this.mount(); this.notices = new NoticeGate(this); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.chat = new ChatInterface(this, { icon }); this.progression = new ProgressionInterface(this, { icon, escape }); this.preferencesUi = new PreferencesInterface(this, { icon }); this.bind();
   }
   mount() {
     document.querySelector('#app').innerHTML = `
@@ -108,7 +111,7 @@ export class Interface {
     document.addEventListener('keydown', event => {
       if (event.code === 'Escape' && event.repeat) return;
       if (event.code === 'Escape' && this.scene.buildMode) { event.preventDefault(); this.scene.buildMode = false; this.$('build-hint').hidden = true; return; }
-      if (event.code === 'Escape' && !this.$('chat-body').hidden && !this.panel && !this.state?.gameOver) {
+      if (event.code === 'Escape' && !this.$('chat-body').hidden && (!this.preferences.compactHud || this.$('chat-panel').classList.contains('chat-peek')) && !this.panel && !this.state?.gameOver) {
         event.preventDefault(); this.chat.setOpen(false); return;
       }
       if (this.net.active && this.state?.gameOver) {
@@ -291,6 +294,7 @@ export class Interface {
   }
   openPanel(type) {
     this.scene.buildMode = false;
+    if (type === 'preferences') return this.preferencesUi.open();
     if (this.progression?.handles(type)) return this.progression.open(type);
     if (this.rpg.handles(type)) return this.rpg.open(type);
     this.modalReturnFocus = document.activeElement;
@@ -301,7 +305,7 @@ export class Interface {
     const body = {
       map: `<p class="muted">Забытые земли · Деревня и Тёмный лес</p><canvas id="world-map" width="768" height="518"></canvas><div class="map-legend"><span><i class="legend-dot hero-dot"></i>Вы</span><span><i class="legend-dot ally-dot"></i>Напарник</span><span><i class="legend-dot enemy-dot"></i>Противник</span><span>Двигайтесь по тропам. В деревне безопасно.</span></div>`,
       settings: `<p class="muted">Мир продолжает жить, пока вы открываете меню.<br>Для отдыха вернитесь в безопасную деревню.</p><div class="settings-row"><label for="effects-toggle">Эффекты и встряска камеры</label><input id="effects-toggle" type="checkbox" ${this.scene.effectsEnabled ? 'checked' : ''}></div><button id="save-now" class="secondary-button">${icon('save')} Сохранить сейчас</button><button id="backup-key" class="secondary-button">${icon('copy')} Скопировать ключ героя</button><p class="panel-footnote">Ключ возвращает вашего героя на другом компьютере. Храните его у себя и не отправляйте другим игрокам.</p><button id="resume-button" class="primary-button">Продолжить путешествие ${icon('arrow')}</button><button id="leave-world" class="text-button">${icon('door')} Сохранить и выйти в меню</button>`,
-      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R / T</kbd> Навыки / навык профессии</span><span><kbd>+</kbd> Улучшение над панелью боя · Shift + клик: до 10 рангов</span><span><kbd>B</kbd> Строить забор из ящиков · ЛКМ поставить</span><span><kbd>P</kbd> Профессия с 10 уровня</span><span><kbd>F</kbd> Добыча дерева и руды, забор, надгробие, NPC</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
+      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>${['q', 'e', 'r'].map(k => this.preferences.label(k)).join(' ')} / ${this.preferences.label('t')}</kbd> Навыки / навык профессии</span><span><kbd>+</kbd> Улучшение над панелью боя · Shift + клик: до 10 рангов</span><span><kbd>B</kbd> Строить забор из ящиков · ЛКМ поставить</span><span><kbd>P</kbd> Профессия с 10 уровня</span><span><kbd>F</kbd> Добыча дерева и руды, забор, надгробие, NPC</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
       restore: `<p class="muted">Введите сохранённый ключ героя, чтобы открыть его миры на этом устройстве.</p><form id="restore-form"><label class="field-label" for="restore-input">ЛИЧНЫЙ КЛЮЧ ГЕРОЯ</label><input id="restore-input" required minlength="32" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Вставьте ключ"><p class="panel-footnote">Текущий ключ будет заменён только в этом браузере. Если он нужен, сначала скопируйте его.</p><button type="button" id="copy-current-key" class="secondary-button">${icon('copy')} Скопировать текущий ключ</button><button type="submit" class="primary-button">Восстановить героя ${icon('arrow')}</button></form>`,
       forget: `<p class="muted"><b>${escape(this.forgetWorld?.name || '')} · ${escape(this.forgetWorld?.code || '')}</b></p><p class="panel-footnote">Путешествие исчезнет из вашего списка. Прогресс героев и доступ друга сохранятся. Чтобы вернуться, присоединитесь по коду <b>${escape(this.forgetWorld?.code || '')}</b>.</p><button id="confirm-forget" class="primary-button forget-confirm">${icon('trash')} Удалить из списка</button><button id="cancel-forget" class="secondary-button">Отмена</button>`,
     }[type];
@@ -321,6 +325,8 @@ export class Interface {
     }
     if (type === 'map') this.drawMap(this.$('world-map'), true);
     if (type === 'settings') {
+      this.$('effects-toggle').closest('.settings-row').insertAdjacentHTML('afterend', `${this.preferencesUi.optionsHtml()}<button id="open-controls" class="secondary-button">Клавиши умений и настройки экрана</button>`);
+      this.preferencesUi.bindOptions(); this.$('open-controls').onclick = () => this.preferencesUi.open();
       this.$('effects-toggle').onchange = event => { this.scene.effectsEnabled = event.target.checked; };
       this.$('resume-button').onclick = () => this.closePanel();
       this.$('backup-key').onclick = () => this.copy(heroToken(), 'Ключ героя скопирован. Сохраните его в надёжном месте.');
@@ -341,6 +347,7 @@ export class Interface {
     }
   }
   closePanel() {
+    if (this.preferencesUi) this.preferencesUi.listening = null;
     this.panel = null; this.$('modal-backdrop').hidden = true;
     this.scene.pausedInput = !this.net.active;
     this.modalReturnFocus?.focus?.(); this.modalReturnFocus = null;
@@ -357,6 +364,7 @@ export class Interface {
     } catch { this.toast('Буфер обмена недоступен. Код мира можно выделить и скопировать вручную.', 'error'); }
   }
   toast(message, type, key = null) {
+    if (this.net.active && !this.preferences.notifications) return;
     if (type !== 'error' && !this.notices.take(key || noticeKey(message))) return;
     const toast = document.createElement('div'); toast.className = `toast ${type === 'error' ? 'error' : ''}`;
     toast.innerHTML = `${icon(type === 'error' ? 'help' : 'check')}<span></span>`; toast.querySelector('span').textContent = message;

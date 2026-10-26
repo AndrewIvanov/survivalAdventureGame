@@ -23,8 +23,10 @@ test('a zero-gold beginner can earn a pickaxe by chopping and selling wood, then
   for (let i = 0; i < 2; i++) { rpgAction(world, hero, { type: 'resource:harvest', nodeId: tree.id }); world.elapsed += GATHERING.cooldownMs; }
   assert.equal(materialCount(hero, 'wood'), 12);
   near(hero, 'merchant');
+  give(hero, 'wood', 989);
   for (let i = 0; i < 10; i++) rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: hero.inventory.find(i => i.baseId === 'wood').id });
   assert.equal(hero.gold, 10); rpgAction(world, hero, { type: 'buy', npcId: 'merchant', baseId: 'pickaxe' }); assert.equal(hero.gold, 0);
+  assert.equal(materialCount(hero, 'wood'), 1);
   const vein = world.resourceNodes.find(n => n.kind === 'ore'); hero.x = vein.x; hero.y = vein.y + 50;
   rpgAction(world, hero, { type: 'resource:harvest', nodeId: vein.id }); assert.equal(materialCount(hero, 'ore'), 3);
 });
@@ -79,6 +81,16 @@ test('only equipped gear is excluded from selling; unequipped starter tools can 
   assert.throws(() => rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: axe.id }));
   rpgAction(world, hero, { type: 'unequip', itemId: axe.id }); rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: axe.id });
   assert.equal(hero.gold, 4); assert.ok(!hero.inventory.some(i => i.id === axe.id));
+});
+
+test('wood trades consume exactly 100 across stacks for one gold and reject insufficient stock atomically', () => {
+  const { world, hero } = setup(); near(hero, 'merchant'); give(hero, 'wood', 99);
+  const woodId = hero.inventory.find(i => i.baseId === 'wood').id, before = structuredClone(hero.inventory);
+  assert.throws(() => rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: woodId })); assert.equal(hero.gold, 0); assert.deepEqual(hero.inventory, before);
+  give(hero, 'wood', 106); rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: woodId });
+  assert.equal(materialCount(hero, 'wood'), 105); assert.equal(hero.gold, 1);
+  rpgAction(world, hero, { type: 'sell', npcId: 'merchant', itemId: hero.inventory.find(i => i.baseId === 'wood').id });
+  assert.equal(materialCount(hero, 'wood'), 5); assert.equal(hero.gold, 2);
 });
 
 test('adjacent fence boxes block movement, upgrade to 10, take enemy attacks and reopen terrain on destruction', () => {

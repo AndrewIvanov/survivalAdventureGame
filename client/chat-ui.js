@@ -38,6 +38,7 @@ export class ChatInterface {
 
   setOpen(open, focus = true) {
     this.open = open;
+    this.ui.$('chat-panel').classList.toggle('chat-peek', open && focus);
     this.ui.$('chat-body').hidden = !open;
     this.ui.$('chat-toggle').setAttribute('aria-expanded', String(open));
     if (open) {
@@ -62,6 +63,7 @@ export class ChatInterface {
       const { message } = await this.ui.net.chat(text);
       if (worldId !== this.ui.state?.id || !this.ui.net.active) return;
       this.receive(message);
+      if (this.ui.preferences.compactHud) this.setOpen(false);
       if (input.value.trim() === text) input.value = '';
       if (document.activeElement === input || document.activeElement === this.ui.$('chat-send')) document.activeElement.blur();
     } catch (error) { this.ui.toast(error.message, 'error'); }

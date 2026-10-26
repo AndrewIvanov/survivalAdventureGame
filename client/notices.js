@@ -6,6 +6,7 @@ export const noticeKey = message => {
 export class NoticeGate {
   constructor(ui) { this.ui = ui; this.worldId = null; this.seen = new Set(); this.pending = new Set(); }
   take(key) {
+    if (this.ui.preferences?.notifications === false) return false;
     const worldId = this.ui.net.state?.id;
     if (!worldId || !this.ui.net.active) return true;
     if (worldId !== this.worldId || this.playerId !== this.ui.net.playerId) {

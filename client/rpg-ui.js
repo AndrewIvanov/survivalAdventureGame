@@ -2,8 +2,9 @@ import { CLASSES, ABILITIES, ATTRIBUTES, ITEMS, RARITIES, QUESTS, NPCS, INVENTOR
 import { distance, levelXp, inVillage } from '../shared/config.js';
 import { SURVIVAL } from '../shared/survival.js';
 import { REVIVAL } from '../shared/revival.js';
-import { RECIPES, GATHERING, materialCount, upgradeCost, costText, canAfford } from '../shared/crafting.js';
+import { RECIPES, GATHERING, materialCount, upgradeCost, costText, canAfford, WOOD_TRADE } from '../shared/crafting.js';
 import { MAX_SKILL_RANK, professionOf, skillRank } from '../shared/professions.js';
+import { skillDetails, skillSummary } from './skill-details.js';
 
 export class RpgInterface {
   constructor(ui, { icon, escape }) {
@@ -50,7 +51,8 @@ export class RpgInterface {
     document.addEventListener('keydown', event => {
       if (/INPUT|TEXTAREA/.test(event.target.tagName) || !this.net.active || this.ui.state?.gameOver || event.repeat) return;
       const code = event.code;
-      if (['KeyQ', 'KeyE', 'KeyR', 'KeyT'].includes(code) && !this.ui.panel) { event.preventDefault(); this.ui.scene.cast(code.slice(-1).toLowerCase()); }
+      const skill = this.ui.preferences.skillFor(code);
+      if (skill && !this.ui.panel && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); this.ui.scene.cast(skill); }
       if (code === 'KeyF' && !this.ui.panel) { event.preventDefault(); this.interact(); }
       if (code === 'KeyC') { event.preventDefault(); this.ui.panel === 'character' ? this.ui.closePanel() : this.open('character'); }
       if (code === 'KeyJ') { event.preventDefault(); this.ui.panel === 'journal' ? this.ui.closePanel() : this.open('journal'); }
@@ -115,7 +117,7 @@ export class RpgInterface {
         button.querySelector('.ability-icon').innerHTML = this.icon(ability.icon);
         button.querySelector('small').textContent = ability.short;
       }
-      button.title = `${key.toUpperCase()} · ${ability.name} · ${ability.cost} энергии · ${ability.cooldown / 1000} с\n${ability.description}`;
+      button.title = `${this.ui.preferences.label(key)} · ${ability.name} · ${ability.cost} энергии · ${ability.cooldown / 1000} с\n${ability.description}\n${skillSummary(me, key)}`;
       const left = Math.max(0, (me.cooldowns[key] || 0) - state.elapsed);
       button.querySelector('.cooldown').hidden = left <= 0;
       button.querySelector('.cooldown').textContent = (left / 1000).toFixed(1);
@@ -130,7 +132,7 @@ export class RpgInterface {
     const active = Object.entries(me.quests).filter(([, q]) => q.status === 'active');
     this.ui.$('quest-tracker').innerHTML = `<button id="tracker-open">${this.icon('flag')} ЗАДАНИЯ <span>J</span></button>${active.length ? active.slice(0, 3).map(([id, q]) => `<div class="tracked-quest ${q.progress >= QUESTS[id].target ? 'ready' : ''}"><strong>${QUESTS[id].name}</strong><span>${q.progress} / ${QUESTS[id].target}${q.progress >= QUESTS[id].target ? ' · За наградой' : ''}</span></div>`).join('') : '<p>Поговорите со старостой<br>или охотницей у восточной тропы.</p>'}`;
     this.ui.$('tracker-open').onclick = () => this.open('journal');
-    if (this.ui.panel === 'class' && me.classChosen) { this.ui.closePanel(); this.ui.toast(`Ваше призвание: ${CLASSES[me.classId].name}. Способности доступны на Q, E и R.`); }
+    if (this.ui.panel === 'class' && me.classChosen) { this.ui.closePanel(); this.ui.toast(`Ваше призвание: ${CLASSES[me.classId].name}. Способности доступны на ${['q', 'e', 'r'].map(k => this.ui.preferences.label(k)).join(', ')}.`); }
     if (this.handles(this.ui.panel)) this.refreshPanel(me);
     if (!me.classChosen && me.hp > 0 && inVillage(me) && !this.ui.panel && !this.prompted.has(state.id)) {
       this.prompted.add(state.id); this.open('class');
@@ -178,7 +180,7 @@ export class RpgInterface {
     this.ui.$('modal').querySelector('[data-start-build]')?.addEventListener('click', () => { this.ui.closePanel(); this.ui.progression.toggleBuild(); });
   }
   button(label, action, className = 'secondary-button', disabled = false) {
-    const aria = action.type === 'attribute' ? `${ATTRIBUTES[action.attribute]}: увеличить` : action.type === 'skill' ? `Улучшить способность ${action.key.toUpperCase()}` : null;
+    const aria = action.type === 'attribute' ? `${ATTRIBUTES[action.attribute]}: увеличить` : action.type === 'skill' ? `Улучшить способность ${this.ui.preferences.label(action.key)}` : null;
     return `<button class="${className}" ${aria ? `aria-label="${aria}"` : ''} data-action="${this.escape(JSON.stringify(action))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
   }
   itemName(item) { return `${ITEMS[item.baseId].name}${item.upgrade ? ` +${item.upgrade}` : ''}`; }
@@ -204,7 +206,7 @@ export class RpgInterface {
   }
   character(me) {
     const stats = effectiveStats(me), cls = CLASSES[me.classId];
-    return `<div class="rpg-character-header"><span class="portrait-art ${me.appearance}" style="background-image:${this.escape(this.portrait(me))}"></span><div><h3>${this.escape(me.name)} · ${cls.name}</h3><p class="muted">Уровень ${me.level} · ${me.xp} / ${levelXp(me.level)} XP</p></div></div><div class="rpg-character-columns"><section><div class="field-label">ХАРАКТЕРИСТИКИ · ОЧКОВ: ${me.statPoints}</div><div class="attributes-list">${Object.entries(ATTRIBUTES).map(([id, label]) => `<div><span>${label}</span><b>${me.attributes[id]}</b>${this.button('+', { type: 'attribute', attribute: id }, 'attribute-plus', me.statPoints <= 0)}</div>`).join('')}</div><div class="sheet-stats"><div><span>Сила атаки</span><b>${stats.damage}</b></div><div><span>Броня</span><b>${stats.armor}</b></div><div><span>Макс. здоровье</span><b>${stats.maxHp}</b></div><div><span>Макс. энергия</span><b>${stats.maxMana}</b></div><div><span>Критический удар</span><b>${Math.round(stats.critical * 100)}%</b></div></div><p class="panel-footnote">Сила усиливает воина, ловкость — лучника и скорость, интеллект — мага и энергию. Выносливость даёт здоровье.</p></section><section><div class="field-label">СПОСОБНОСТИ · ОЧКОВ: ${me.skillPoints}</div>${Object.entries(ABILITIES[me.classId]).map(([key, a]) => `<div class="ability-description"><span class="ability-letter">${key.toUpperCase()}</span><div><strong>${a.name} <small>${me.abilityRanks[key]}/100</small></strong><p>${a.description}</p><small>${a.cost} энергии · ${a.cooldown / 1000} с</small></div>${this.button('+', { type: 'skill', key }, 'attribute-plus', me.skillPoints <= 0 || me.abilityRanks[key] >= MAX_SKILL_RANK)}</div>`).join('')}<p class="panel-footnote">Каждый уровень даёт 3 очка характеристик и 3 очка навыков. До 100 рангов: +1% эффекта за ранг, стойкость +0,1 брони. Улучшайте навыки прямо над панелью боя, Shift + клик добавляет до 10 рангов.</p></section></div><button data-panel="profession" class="secondary-button">${professionOf(me)?.name || 'Выбрать профессию · с 10 уровня'}</button>${!me.classChosen ? '<button data-panel="class" class="primary-button">Выбрать призвание</button>' : ''}`;
+    return `<div class="rpg-character-header"><span class="portrait-art ${me.appearance}" style="background-image:${this.escape(this.portrait(me))}"></span><div><h3>${this.escape(me.name)} · ${cls.name}</h3><p class="muted">Уровень ${me.level} · ${me.xp} / ${levelXp(me.level)} XP</p></div></div><div class="rpg-character-columns"><section><div class="field-label">ХАРАКТЕРИСТИКИ · ОЧКОВ: ${me.statPoints}</div><div class="attributes-list">${Object.entries(ATTRIBUTES).map(([id, label]) => `<div><span>${label}</span><b>${me.attributes[id]}</b>${this.button('+', { type: 'attribute', attribute: id }, 'attribute-plus', me.statPoints <= 0)}</div>`).join('')}</div><div class="sheet-stats"><div><span>Сила атаки</span><b>${stats.damage}</b></div><div><span>Броня</span><b>${stats.armor}</b></div><div><span>Макс. здоровье</span><b>${stats.maxHp}</b></div><div><span>Макс. энергия</span><b>${stats.maxMana}</b></div><div><span>Критический удар</span><b>${Math.round(stats.critical * 100)}%</b></div></div><p class="panel-footnote">Сила усиливает воина, ловкость — лучника и скорость, интеллект — мага и энергию. Выносливость даёт здоровье.</p></section><section><div class="field-label">СПОСОБНОСТИ · ОЧКОВ: ${me.skillPoints}</div>${Object.entries(ABILITIES[me.classId]).map(([key, a]) => `<div class="ability-description"><span class="ability-letter">${this.ui.preferences.label(key)}</span><div><strong>${a.name} <small>${me.abilityRanks[key]}/100</small></strong><p>${a.description}</p>${skillDetails(me, key)}<small>${a.cost} энергии · ${a.cooldown / 1000} с</small></div>${this.button('+', { type: 'skill', key }, 'attribute-plus', me.skillPoints <= 0 || me.abilityRanks[key] >= MAX_SKILL_RANK)}</div>`).join('')}<p class="panel-footnote">Каждый уровень даёт 3 очка характеристик и 3 очка навыков. До 100 рангов: +1% эффекта за ранг, стойкость +0,1 брони. Улучшайте навыки прямо над панелью боя, Shift + клик добавляет до 10 рангов.</p></section></div><button data-panel="profession" class="secondary-button">${professionOf(me)?.name || 'Выбрать профессию · с 10 уровня'}</button>${!me.classChosen ? '<button data-panel="class" class="primary-button">Выбрать призвание</button>' : ''}`;
   }
   questCard(me, id, npc = null) {
     const quest = QUESTS[id], state = me.quests[id];
@@ -233,7 +235,8 @@ export class RpgInterface {
       body += `<div class="smith-upgrade"><h3>Закалка снаряжения · до +10</h3><p class="muted">Оружие, броня, сапоги, щит, шлем и кольцо. Улучшать можно и вещи из рюкзака.</p><div class="shop-list">${gear.map(item => `<div>${this.icon(ITEMS[item.baseId].icon)}<span><strong>${this.itemName(item)}</strong><small>${EQUIPMENT_SLOTS[ITEMS[item.baseId].type]} · ${item.upgrade || 0} / ${MAX_UPGRADE}${Object.values(me.equipment).includes(item.id) ? ' · надето' : ''}</small></span>${this.upgradeButton(me, item)}</div>`).join('')}</div></div>`;
     }
     if (npc.id === 'merchant') {
-      const sellable = me.inventory.filter(i => !Object.values(me.equipment).includes(i.id));
+      const sellable = me.inventory.filter(i => i.baseId !== 'wood' && !Object.values(me.equipment).includes(i.id)), wood = me.inventory.find(i => i.baseId === 'wood'), woodCount = materialCount(me, 'wood');
+      body += `<div class="field-label shop-gold">ОБМЕН ДРЕВЕСИНЫ</div><div class="shop-list"><div>${this.icon('tree')}<span><strong>${WOOD_TRADE.wood} древесины → ${WOOD_TRADE.gold} золото</strong><small>В рюкзаке: ${woodCount} древесины</small></span>${this.button('Обменять', { type: 'sell', npcId: npc.id, itemId: wood?.id }, 'shop-buy', woodCount < WOOD_TRADE.wood)}</div></div>`;
       body += `<div class="field-label shop-gold">ПРОДАТЬ ИЗ РЮКЗАКА · ПО 1 ШТУКЕ</div><div class="shop-list">${sellable.map(i => `<div>${this.icon(ITEMS[i.baseId].icon)}<span><strong>${this.itemName(i)}</strong><small>${i.quantity} шт. · ${Math.max(1, Math.floor(ITEMS[i.baseId].price * .4))} золота / шт.</small></span>${this.button('Продать', { type: 'sell', npcId: npc.id, itemId: i.id }, 'shop-buy')}</div>`).join('') || '<p class="muted">Нет вещей для продажи.</p>'}</div>`;
     }
     return `<div class="npc-dialogue"><span class="portrait-art ${npc.appearance}"></span><div><div class="eyebrow">${npc.role}</div><p>«${npc.dialogue}»</p></div></div>${body}`;

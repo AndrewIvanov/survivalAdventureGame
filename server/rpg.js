@@ -2,7 +2,7 @@ import { ATTRIBUTES, CLASSES, ITEMS, NPCS, CHESTS, ABILITIES, effectiveStats, EQ
 import { clockInfo } from '../shared/survival.js';
 import { distance, inVillage } from '../shared/config.js';
 import { addItem, makeItem, inventoryAction, consumeItem, refreshStats, payCost, craftItem } from './inventory.js';
-import { RECIPES, upgradeCost } from '../shared/crafting.js';
+import { RECIPES, upgradeCost, WOOD_TRADE } from '../shared/crafting.js';
 import { PROFESSIONS, PROFESSION_LEVEL, MAX_SKILL_RANK } from '../shared/professions.js';
 import { harvest } from './resources.js';
 import { buildFence, fenceAction } from './building.js';
@@ -93,7 +93,8 @@ export function rpgAction(world, player, action) {
       if (npc.id !== 'merchant') throw new Error('Продать вещи можно торговке Мире.');
       const item = player.inventory.find(i => i.id === action.itemId);
       if (!item || Object.values(player.equipment).includes(item.id)) throw new Error('Этот предмет нельзя продать. Сначала снимите экипировку.');
-      player.gold += Math.max(1, Math.floor(ITEMS[item.baseId].price * .4)); consumeItem(player, item);
+      if (item.baseId === 'wood') { payCost(player, { wood: WOOD_TRADE.wood }); player.gold += WOOD_TRADE.gold; }
+      else { player.gold += Math.max(1, Math.floor(ITEMS[item.baseId].price * .4)); consumeItem(player, item); }
     } else if (action.type === 'upgrade') {
       if (npc.id !== 'smith') throw new Error('Снаряжение улучшает кузнец.');
       const item = player.inventory.find(i => i.id === (action.itemId || player.equipment.weapon));
