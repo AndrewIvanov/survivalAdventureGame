@@ -18,7 +18,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
   const io = new Server(http, { maxHttpBufferSize: 8192, pingTimeout: 15000 });
   const worlds = new Map(), sessions = new Map();
   let vite, closing = false, closePromise, commands = Promise.resolve();
-  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: '0.3.1', storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
+  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: '0.3.2', storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
   if (dev) {
     const { createServer: createViteServer } = await import('vite');
     vite = await createViteServer({ root, server: { middlewareMode: true, hmr: { server: http } }, appType: 'spa' });

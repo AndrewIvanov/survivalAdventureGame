@@ -1,14 +1,48 @@
-// Manual browser QA only: disposable world, isolated from data/village.sqlite.
+// Manual browser QA only: disposable world, isolated from all real databases.
+import { createInterface } from 'node:readline';
 import { createGameServer } from '../../server/index.js';
 import { GameWorld } from '../../server/world.js';
 import { SURVIVAL, CYCLE_MS } from '../../shared/survival.js';
+import { NPCS } from '../../shared/rpg.js';
+import { makeItem, addItem, refreshStats } from '../../server/inventory.js';
+import { beginNight, updateSurvival } from '../../server/survival.js';
 
 const server = await createGameServer({ database: ':memory:', dev: true });
-const world = new GameWorld(); world.code = 'NIGHT5'; world.name = 'Проверка пятой ночи';
-world.survival.clockMs = 4 * CYCLE_MS + SURVIVAL.dayMs - 1000;
-world.survival.lastNight = 4;
-server.store.save(world.serialize());
+const world = new GameWorld(); world.code = 'NIGHT2'; world.name = 'Проверка ночной охоты';
+const join = world.join.bind(world);
+world.join = (...args) => {
+  const player = join(...args);
+  if (!player.previewReady) {
+    player.previewReady = true; player.gold = 10000;
+    for (const baseId of ['armor', 'boots', 'shield', 'helmet', 'ring']) {
+      const item = addItem(player, makeItem(baseId, 'rare')); item.upgrade = 3; player.equipment[baseId] = item.id;
+    }
+    player.x = 1355; player.y = 1395; refreshStats(player, true);
+  }
+  return player;
+};
+server.worlds.set(world.id, world); await server.store.save(world.serialize());
 await server.listen(3001, '127.0.0.1');
-console.log('Disposable survival preview: http://127.0.0.1:3001 · join NIGHT5');
+console.log('Disposable preview: http://127.0.0.1:3001 · join NIGHT2. Console: day, night 2/4/6/8, smith, shrine, dawn.');
+const input = createInterface({ input: process.stdin });
+input.on('line', line => {
+  const [command, number] = line.trim().split(' ');
+  if (command === 'night') {
+    const n = Number(number) || 2;
+    world.monsters = []; world.survival.lastNight = n - 1;
+    world.survival.clockMs = (n - 1) * CYCLE_MS + SURVIVAL.dayMs;
+    beginNight(world, n); updateSurvival(world, 0);
+    for (const p of world.players.values()) p.invulnerableUntil = world.elapsed + 120000;
+  }
+  if (command === 'day' || command === 'dawn') {
+    world.survival.clockMs = Math.ceil(world.survival.clockMs / CYCLE_MS) * CYCLE_MS - 50;
+    updateSurvival(world, .05);
+  }
+  if (command === 'smith' || command === 'shrine') for (const p of world.players.values()) {
+    const point = command === 'smith' ? NPCS.find(n => n.id === 'smith') : SURVIVAL.shrine;
+    p.x = point.x + 25; p.y = point.y + 35;
+  }
+  console.log(`${command}: phase=${world.snapshot().survival.phase}, monsters=${world.monsters.length}`);
+});
 let closing = false;
-for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, async () => { if (closing) return; closing = true; await server.close(); process.exit(0); });
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, async () => { if (closing) return; closing = true; input.close(); await server.close(); process.exit(0); });

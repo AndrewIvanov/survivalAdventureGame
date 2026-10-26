@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnMonster } from '../server/spawns.js';
+import { MONSTERS } from '../shared/config.js';
 import { GameWorld } from '../server/world.js';
 import { rpgAction } from '../server/rpg.js';
 import { castAbility, updateZones } from '../server/abilities.js';
@@ -10,7 +12,7 @@ import { SaveStore } from '../server/persistence.js';
 import { CLASSES, NPCS, QUESTS, effectiveStats } from '../shared/rpg.js';
 
 function setup(classId = 'warrior') {
-  const world = new GameWorld(); world.random = () => .5;
+  const world = new GameWorld(); spawnMonster(world, 'wolf', 2100, 1152); world.random = () => .5;
   const p = world.join('a', 'Искатель', 'ranger', classId); return { world, p };
 }
 function near(p, npcId) { const npc = NPCS.find(n => n.id === npcId); p.x = npc.x + 35; p.y = npc.y + 25; }
@@ -57,7 +59,7 @@ test('equipment affects damage and armor; potions are consumed once with cooldow
   assert.throws(() => rpgAction(world, p, { type: 'equip', itemId: wrong.id }));
   const armor = makeItem('armor'); addItem(p, armor); rpgAction(world, p, { type: 'equip', itemId: armor.id });
   assert.equal(effectiveStats(p).armor, 6);
-  const before = p.hp; hurtPlayer(world, world.monsters[0], p); assert.equal(p.hp, before - 3);
+  const before = p.hp; hurtPlayer(world, world.monsters[0], p); assert.equal(p.hp, before - (MONSTERS.wolf.damage - effectiveStats(p).armor));
   p.hp = 20; const potion = p.inventory.find(i => i.baseId === 'health');
   rpgAction(world, p, { type: 'use', itemId: potion.id }); assert.equal(p.hp, 85); assert.equal(potion.quantity, 2);
   assert.throws(() => rpgAction(world, p, { type: 'use', itemId: potion.id }));

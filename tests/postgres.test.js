@@ -8,6 +8,7 @@ import pg from 'pg';
 import { io } from 'socket.io-client';
 import { PostgresSaveStore } from '../server/postgres.js';
 import { SaveStore } from '../server/persistence.js';
+import { spawnMonster } from '../server/spawns.js';
 import { GameWorld } from '../server/world.js';
 import { createGameServer } from '../server/index.js';
 import { readSqliteSnapshot, importSqliteSnapshot } from '../server/migrate-sqlite.js';
@@ -31,7 +32,7 @@ test('PostgreSQL: stable identities, atomic snapshots, membership, backup recove
   assert.equal(await store.identity('a'.repeat(64)), a);
   const sqlite = new SaveStore(':memory:'); assert.equal(sqlite.identity('a'.repeat(64)), a); sqlite.close();
   const world = new GameWorld(); world.join(a, 'Альфа', 'ranger', 'mage'); world.join(b, 'Бета', 'sage', 'archer');
-  const hero = world.players.get(a); hero.xp = 42; world.monsters[0].hp = 17;
+  const hero = world.players.get(a); hero.xp = 42; spawnMonster(world, 'wolf', 2100, 1152).hp = 17;
   await store.save(world.serialize()); hero.xp = 60; await store.save(world.serialize());
   assert.equal((await store.load(world.code)).players[0].xp, 60);
   assert.equal((await store.list(a))[0].members, 2); assert.deepEqual(await store.list('outsider'), []);

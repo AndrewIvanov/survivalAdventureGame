@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ITEMS, RARITIES, INVENTORY_SIZE, effectiveStats, CLASSES } from '../shared/rpg.js';
+import { ITEMS, RARITIES, INVENTORY_SIZE, effectiveStats, CLASSES, EQUIPMENT_SLOTS } from '../shared/rpg.js';
 
 export function makeItem(baseId, rarity = 'common') {
   if (!ITEMS[baseId] || !RARITIES[rarity]) throw new Error('Неизвестный предмет.');
@@ -40,7 +40,7 @@ export function inventoryAction(world, player, action) {
   if (!item) throw new Error('Предмет не найден.');
   const base = ITEMS[item.baseId];
   if (action.type === 'equip') {
-    if (!['weapon', 'armor', 'ring'].includes(base.type)) throw new Error('Этот предмет нельзя надеть.');
+    if (!Object.hasOwn(EQUIPMENT_SLOTS, base.type)) throw new Error('Этот предмет нельзя надеть.');
     if (base.classId && base.classId !== player.classId) throw new Error('Это оружие другого класса.');
     player.equipment[base.type] = item.id; refreshStats(player);
   } else if (action.type === 'unequip') {

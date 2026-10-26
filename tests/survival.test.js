@@ -20,12 +20,12 @@ function night(world, n = 1) {
   world.tick(.05);
 }
 
-test('ten-minute cycle has seven-minute days, three-minute nights and correct night numbers', () => {
-  assert.equal(clockInfo(0).remaining, 420000);
-  assert.equal(clockInfo(419999).phase, 'day'); assert.equal(clockInfo(420000).phase, 'night');
-  assert.equal(clockInfo(420000).remaining, 180000); assert.equal(clockInfo(599999).nightNumber, 1);
-  assert.equal(clockInfo(600000).day, 2); assert.equal(clockInfo(600000).phase, 'day');
-  assert.equal(clockInfo(2820000).nightNumber, 5);
+test('seven-minute cycle has five-minute days and two-minute nights', () => {
+  assert.equal(clockInfo(0).remaining, 300000);
+  assert.equal(clockInfo(299999).phase, 'day'); assert.equal(clockInfo(300000).phase, 'night');
+  assert.equal(clockInfo(300000).remaining, 120000); assert.equal(clockInfo(419999).nightNumber, 1);
+  assert.equal(clockInfo(420000).day, 2); assert.equal(clockInfo(420000).phase, 'day');
+  assert.equal(clockInfo(CYCLE_MS + SURVIVAL.dayMs).nightNumber, 2);
 });
 
 test('warning is emitted once; night starts exactly once; empty world pauses the clock and wave', () => {
@@ -34,40 +34,41 @@ test('warning is emitted once; night starts exactly once; empty world pauses the
   assert.equal(world.events.filter(e => e.type === 'night-warning').length, 1);
   night(world); assert.equal(world.survival.wave.night, 1);
   world.tick(.05); assert.equal(world.events.filter(e => e.type === 'night-start').length, 1);
-  assert.equal(world.survival.wave.spawned, 4);
+  assert.equal(world.survival.wave.spawned, 40);
   world.leave(player.id); const clock = world.survival.clockMs, elapsed = world.elapsed;
   world.tick(200); assert.equal(world.survival.clockMs, clock); assert.equal(world.elapsed, elapsed);
 });
 
-test('waves grow stronger, include night enemies, and every fifth night spawns one boss', () => {
+test('waves grow stronger, include night enemies, and every second night spawns one boss', () => {
   const { world } = setup(); night(world);
   const first = world.survival.wave.total, firstHp = world.monsters.find(m => m.raidNight === 1).maxHp;
   assert.ok(world.monsters.some(m => m.kind === 'nightstalker'));
-  night(world, 5);
+  night(world, 2);
   assert.ok(world.survival.wave.total > first); assert.equal(world.survival.wave.bossRequired, true);
   assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
-  assert.ok(world.monsters.find(m => m.raidNight === 5 && m.kind === 'wolf').maxHp > firstHp);
+  assert.ok(world.monsters.find(m => m.raidNight === 2 && m.kind === 'wolf').maxHp > firstHp);
   world.tick(.05); assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
 });
 
-test('raiders enter the village and damage its defense while normal forest monsters stay outside', () => {
+test('all raiders hunt heroes across the map and inside the village without attacking the fountain', () => {
   const { world, player } = setup(); night(world);
+  const raider = world.monsters[0]; raider.x = SURVIVAL.core.x + 55; raider.y = SURVIVAL.core.y;
   player.x = 600; player.y = 1152;
-  const raider = world.monsters.find(m => m.raidId); raider.x = SURVIVAL.core.x + 55; raider.y = SURVIVAL.core.y; raider.lastAttack = -5000;
   const hp = world.village.hp; updateMonsters(world, .05);
-  assert.ok(world.village.hp < hp); assert.equal(raider.state, 'raid');
-  const wild = world.monsters.find(m => !m.raidId); wild.x = 1870; wild.y = 1152;
+  assert.equal(world.village.hp, hp); assert.equal(raider.state, 'chase'); assert.equal(raider.targetId, player.id);
   player.x = WORLD.spawn.x; player.y = WORLD.spawn.y;
-  updateMonsters(world, .05); assert.notEqual(wild.state, 'chase');
+  updateMonsters(world, .05); assert.equal(raider.targetId, player.id);
 });
 
-test('village healing is disabled during a raid, enabled after repelling it', () => {
+test('village healing is disabled during a raid, enabled after dawn', () => {
   const { world, player } = setup(); player.hp = 60; night(world);
   assert.equal(sheltered(world, player), false);
   const hp = player.hp; world.tick(.05); assert.equal(player.hp, hp);
   world.survival.wave.spawned = world.survival.wave.total;
   for (const m of world.monsters.filter(m => m.raidId)) m.hp = 0;
   resolveWave(world); assert.equal(world.survival.wave.status, 'repelled');
+  assert.equal(sheltered(world, player), false);
+  world.survival.clockMs = CYCLE_MS - 50; world.tick(.05);
   assert.equal(sheltered(world, player), true); world.tick(.05); assert.ok(player.hp > hp);
 });
 
@@ -96,6 +97,8 @@ test('falling village ends the raid without resetting heroes; repair validates N
   night(world); world.village.hp = 0; resolveWave(world);
   assert.equal(world.survival.wave.status, 'failed'); assert.equal(player.xp, 33); assert.equal(player.gold, 50);
   player.x = 1588; player.y = 1260;
+  assert.throws(() => rpgAction(world, player, { type: 'village:repair', npcId: 'elder' }));
+  world.survival.clockMs = CYCLE_MS;
   rpgAction(world, player, { type: 'village:repair', npcId: 'elder' }); assert.equal(world.village.hp, 150); assert.equal(player.gold, 35);
   world.survival.wave.status = 'active';
   assert.throws(() => rpgAction(world, player, { type: 'village:repair', npcId: 'elder' }));
@@ -125,7 +128,7 @@ test('boss telegraphs damage after a delay; moving away and dash invulnerability
 });
 
 test('boss changes phases and summons bounded reinforcements', () => {
-  const { world, player } = setup(); player.x = 2180; player.y = 1152;
+  const { world, player } = setup(); world.survival.clockMs = SURVIVAL.dayMs; player.x = 2180; player.y = 1152;
   const boss = spawnGuardian(world); boss.hp = boss.maxHp * .6; boss.nextSpecialAt = 999999;
   updateBosses(world, .05); assert.equal(boss.bossPhase, 2);
   assert.ok(world.monsters.some(m => m.summonOwner === boss.id));
@@ -138,7 +141,7 @@ test('overlapping root warnings damage each hero once per boss attack', () => {
   player.x = friend.x = 2180; player.y = friend.y = 1152;
   const boss = spawnGuardian(world); boss.nextSpecialAt = 99999;
   boss.telegraph = { kind: 'roots', startedAt: 0, resolveAt: 1, circles: [{ x: 2180, y: 1152, radius: 80 }, { x: 2180, y: 1152, radius: 80 }] };
-  const hp = player.hp; world.elapsed = 1; updateBosses(world, .05);
+  player.hp = 1000; const hp = player.hp; world.elapsed = 1; updateBosses(world, .05);
   assert.equal(player.hp, hp - Math.max(1, Math.round(boss.damage * 1.15 - player.stats.armor)));
 });
 
@@ -157,22 +160,23 @@ test('boss victory yields personal persistent epic weapons and cannot be duplica
   damageMonster(world, player, boss, 9999); assert.equal(world.loot.length, 1);
   const restored = new GameWorld(world.serialize()); const hero = restored.join('a', 'A', 'ranger');
   assert.ok(hero.inventory.some(i => i.id === mine.item.id)); assert.equal(restored.loot.length, 1);
-  hero.x = SURVIVAL.shrine.x; hero.y = SURVIVAL.shrine.y; assert.throws(() => summonGuardian(restored, hero));
+  hero.x = SURVIVAL.shrine.x; hero.y = SURVIVAL.shrine.y; summonGuardian(restored, hero);
+  assert.throws(() => summonGuardian(restored, hero));
 });
 
 test('SQLite restores clock, wave identity, pending boss attack and village health together', () => {
-  const { world, player } = setup(); night(world, 5); world.village.hp = 418;
+  const { world, player } = setup(); night(world, 2); world.village.hp = 418;
   const boss = world.monsters.find(m => m.kind === 'guardian'); boss.nextSpecialAt = 0; updateBosses(world, .05);
   const store = new SaveStore(':memory:'); store.save(world.serialize());
   const restored = new GameWorld(store.load(world.code));
   assert.equal(restored.village.hp, 418); assert.equal(restored.survival.clockMs, world.survival.clockMs);
-  assert.equal(restored.survival.wave.id, world.survival.wave.id); assert.equal(restored.survival.wave.spawned, 4);
+  assert.equal(restored.survival.wave.id, world.survival.wave.id); assert.equal(restored.survival.wave.spawned, 40);
   assert.deepEqual(restored.monsters.find(m => m.id === boss.id).telegraph, boss.telegraph);
   restored.join(player.id, 'A', 'ranger'); restored.tick(.05);
   assert.equal(restored.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1); store.close();
 });
 
-test('migration starts a fresh survival day without altering previous heroes or monsters', () => {
+test('migration starts a fresh survival day while preserving heroes and removing daytime monsters', () => {
   const { world, player } = setup(); player.level = 9; player.gold = 432; world.elapsed = 9999999;
   const old = world.serialize(); old.version = 2; delete old.survival; delete old.village.hp; delete old.village.maxHp;
   const restored = new GameWorld(old); assert.equal(restored.survival.clockMs, 0); assert.equal(restored.village.hp, 900);

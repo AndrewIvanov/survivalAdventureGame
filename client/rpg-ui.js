@@ -1,4 +1,4 @@
-import { CLASSES, ABILITIES, ATTRIBUTES, ITEMS, RARITIES, QUESTS, NPCS, INVENTORY_SIZE, itemStats, effectiveStats } from '../shared/rpg.js';
+import { CLASSES, ABILITIES, ATTRIBUTES, ITEMS, RARITIES, QUESTS, NPCS, INVENTORY_SIZE, itemStats, effectiveStats, EQUIPMENT_SLOTS, MAX_UPGRADE, upgradePrice, shopStock } from '../shared/rpg.js';
 import { distance, levelXp, inVillage } from '../shared/config.js';
 import { SURVIVAL } from '../shared/survival.js';
 
@@ -75,7 +75,7 @@ export class RpgInterface {
   nearest(me) {
     if (!me || me.hp <= 0) return null;
     const choices = [
-      ...NPCS.map(n => ({ ...n, kind: 'npc', label: n.name, range: 100 })),
+      ...(this.ui.state.survival?.phase === 'night' ? [] : NPCS).map(n => ({ ...n, kind: 'npc', label: n.name, range: 100 })),
       ...(this.ui.state.loot || []).map(l => ({ ...l, kind: 'loot', label: ITEMS[l.item.baseId].name, range: 80 })),
       ...(this.ui.state.chests || []).filter(c => !c.claimedBy.includes(me.id)).map(c => ({ ...c, kind: 'chest', label: c.supply ? 'Ящик припасов' : 'Лесной тайник', range: 80 })),
       { ...SURVIVAL.shrine, kind: 'shrine', label: SURVIVAL.shrine.name, range: 95 },
@@ -92,6 +92,7 @@ export class RpgInterface {
   }
   render(state, me) {
     if (!me.inventory) return;
+    if (state.survival?.phase === 'night' && this.ui.panel === 'npc') { this.ui.closePanel(); this.ui.toast('Жители укрылись до рассвета.'); }
     this.ui.$('hero-portrait').querySelector('.portrait-art').style.backgroundImage = this.portrait(me);
     this.ui.$('mana-fill').style.width = `${me.mana / me.maxMana * 100}%`;
     this.ui.$('mana-label').textContent = `${Math.floor(me.mana)} / ${me.maxMana}`;
@@ -134,7 +135,7 @@ export class RpgInterface {
   refreshPanel(me) {
     if (!me) return;
     const type = this.ui.panel;
-    const signature = JSON.stringify([type, this.npcId, this.selectedItem, me.inventory, me.equipment, me.gold, me.quests, me.classId, me.classChosen, me.attributes, me.statPoints, me.skillPoints, me.abilityRanks, me.level, type === 'npc' && this.npcId === 'elder' ? this.ui.state.village?.hp : null, this.ui.state.survival?.wave?.status, this.ui.state.survival?.guardianDefeated, this.ui.state.survival?.guardianActive]);
+    const signature = JSON.stringify([type, this.npcId, this.selectedItem, me.inventory, me.equipment, me.gold, me.quests, me.classId, me.classChosen, me.attributes, me.statPoints, me.skillPoints, me.abilityRanks, me.level, type === 'npc' && this.npcId === 'elder' ? this.ui.state.village?.hp : null, this.ui.state.survival?.wave?.status, this.ui.state.survival?.guardianDefeated, this.ui.state.survival?.guardianActive, this.ui.state.survival?.summonAvailable, this.ui.state.survival?.phase, this.ui.state.survival?.day, this.ui.state.survival?.lastSummonDay, Math.floor(distance(me, NPCS.find(n => n.id === 'smith')) / 100)]);
     if (signature === this.signature) return;
     this.signature = signature;
     const title = { inventory: 'Всё, что вы несёте', character: 'Ваше призвание', journal: 'Истории забытых земель', npc: NPCS.find(n => n.id === this.npcId)?.name, class: 'Выберите своё призвание', shrine: 'Шёпот древнего леса' }[type];
@@ -144,7 +145,11 @@ export class RpgInterface {
     if (type === 'journal') content = this.journal(me);
     if (type === 'class') content = this.classes(me);
     if (type === 'npc') content = this.npc(me);
-    if (type === 'shrine') content = `<div class="shrine-emblem">${this.icon('tree')}</div><p class="muted">Камень хранит дыхание Лесного стража. Пробудите его, когда будете готовы к бою. Лучше взять напарника и зелья.</p><div class="help-tip">Три фазы, удары по области и призыв монстров. Отходите из красных кругов; Space даёт короткую неуязвимость. Каждый участник получает личное эпическое оружие.</div>${this.button(this.ui.state.survival?.guardianDefeated ? 'Страж уже повержен' : this.ui.state.survival?.guardianActive ? 'Страж уже пробуждён' : 'Пробудить Лесного стража', { type: 'boss:summon' }, 'primary-button', this.ui.state.survival?.guardianDefeated || this.ui.state.survival?.guardianActive)}<p class="panel-footnote">Страж алтаря побеждается один раз в этом мире. В каждой пятой ночной волне появляется новый усиленный Страж.</p>`;
+    if (type === 'shrine') {
+      const survival = this.ui.state.survival;
+      const label = survival.phase === 'night' ? 'Призыв доступен после рассвета' : survival.guardianActive ? 'Призванный босс ещё жив' : !survival.summonAvailable ? 'Сегодня призыв уже использован' : 'Призвать босса';
+      content = `<div class="shrine-emblem">${this.icon('tree')}</div><p class="muted">Обелиск позволяет призвать одного босса за игровой день для всего отряда. После рассвета призыв снова доступен. С каждым днём босс становится сильнее.</p><div class="help-tip">Отходите из отмеченных областей и используйте рывок. Босс меняет фазу на 65% и 30% здоровья. Каждый участник получает эпическое оружие.</div>${this.button(label, { type: 'boss:summon' }, 'primary-button', !survival.summonAvailable)}<p class="panel-footnote">Дневной призыв — исключение из ночной охоты. Ночами 2, 4, 6 и далее появляются отдельные боссы волн с разным обликом.</p>`;
+    }
     this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · RPG</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${['inventory', 'character', 'journal'].includes(type) ? `<div class="rpg-tabs"><button data-panel="inventory" class="${type === 'inventory' ? 'active' : ''}">Рюкзак · I</button><button data-panel="character" class="${type === 'character' ? 'active' : ''}">Герой · C</button><button data-panel="journal" class="${type === 'journal' ? 'active' : ''}">Задания · J</button></div>` : ''}${content}`;
     this.ui.$('close-modal').onclick = () => this.ui.closePanel();
     this.ui.$('modal').querySelectorAll('[data-panel]').forEach(b => b.onclick = () => this.open(b.dataset.panel));
@@ -171,9 +176,14 @@ export class RpgInterface {
     let detail = '<p class="muted">Выберите предмет в рюкзаке.</p>';
     if (selected) {
       const base = itemStats(selected), isEquipped = equipped.includes(selected.id);
-      detail = `<div class="item-showcase" style="--rarity:${RARITIES[selected.rarity].color}">${this.icon(base.icon)}</div><div class="item-rarity" style="color:${RARITIES[selected.rarity].color}">${RARITIES[selected.rarity].name}</div><h3>${this.itemName(selected)}</h3><p class="muted">${base.classId ? `Оружие · ${CLASSES[base.classId].name}` : { armor: 'Экипировка · Броня', ring: 'Экипировка · Кольцо', potion: 'Расходуемый предмет', material: 'Материал · можно продать торговке' }[base.type]}</p><div class="item-bonuses">${base.damage ? `Сила атаки <b>${base.damage}</b>` : ''}${base.armor ? `Броня <b>+${base.armor}</b>` : ''}${base.heal ? 'Восстанавливает 65 здоровья' : ''}${base.mana ? `${base.type === 'potion' ? 'Восстанавливает' : 'Максимум энергии +'} ${base.mana}${base.type === 'potion' ? ' энергии' : ''}` : ''}</div>${base.type === 'potion' ? this.button('Использовать', { type: 'use', itemId: selected.id }, 'primary-button') : ['weapon', 'armor', 'ring'].includes(base.type) ? this.button(isEquipped ? 'Снять' : 'Надеть', { type: isEquipped ? 'unequip' : 'equip', itemId: selected.id }, 'primary-button', base.classId && base.classId !== me.classId) : ''}<p class="panel-footnote">${isEquipped ? '◆ Надето на герое' : base.classId && base.classId !== me.classId ? 'Требуется другой класс героя' : 'Предмет сохраняется вместе с героем.'}</p>`;
+      detail = `<div class="item-showcase" style="--rarity:${RARITIES[selected.rarity].color}">${this.icon(base.icon)}</div><div class="item-rarity" style="color:${RARITIES[selected.rarity].color}">${RARITIES[selected.rarity].name}</div><h3>${this.itemName(selected)}</h3><p class="muted">${base.classId ? `Оружие · ${CLASSES[base.classId].name}` : { ...Object.fromEntries(Object.entries(EQUIPMENT_SLOTS).map(([id, name]) => [id, `Экипировка · ${name}`])), potion: 'Расходуемый предмет', material: 'Материал · можно продать торговке' }[base.type]}</p><div class="item-bonuses">${base.damage ? `<span>Сила атаки <b>${base.damage}</b></span>` : ''}${base.armor ? `<span>Броня <b>+${base.armor}</b></span>` : ''}${base.speed ? `<span>Скорость <b>+${base.speed}</b></span>` : ''}${base.heal ? 'Восстанавливает 65 здоровья' : ''}${base.mana ? `${base.type === 'potion' ? 'Восстанавливает' : 'Максимум энергии +'} ${base.mana}${base.type === 'potion' ? ' энергии' : ''}` : ''}</div>${base.type === 'potion' ? this.button('Использовать', { type: 'use', itemId: selected.id }, 'primary-button') : Object.hasOwn(EQUIPMENT_SLOTS, base.type) ? this.button(isEquipped ? 'Снять' : 'Надеть', { type: isEquipped ? 'unequip' : 'equip', itemId: selected.id }, 'primary-button', base.classId && base.classId !== me.classId) : ''}${Object.hasOwn(EQUIPMENT_SLOTS, base.type) ? `<div class="item-upgrade"><small>Закалка ${selected.upgrade || 0} / ${MAX_UPGRADE}</small>${this.upgradeButton(me, selected)}<p class="panel-footnote">Для улучшения подойдите к кузнецу днём.</p></div>` : ''}<p class="panel-footnote">${isEquipped ? '◆ Надето на герое' : base.classId && base.classId !== me.classId ? 'Требуется другой класс героя' : 'Предмет сохраняется вместе с героем.'}</p>`;
     }
-    return `<div class="inventory-heading"><span>${this.icon('coin')} ${me.gold} золота</span><span>${me.inventory.length} / ${INVENTORY_SIZE} ячеек</span></div><div class="inventory-layout"><div><div class="equipment-summary">${['weapon', 'armor', 'ring'].map(slot => { const item = me.inventory.find(i => i.id === me.equipment[slot]); return `<div><small>${{ weapon: 'ОРУЖИЕ', armor: 'БРОНЯ', ring: 'КОЛЬЦО' }[slot]}</small><span>${item ? this.itemName(item) : 'Не надето'}</span></div>`; }).join('')}</div><div class="inventory-grid">${slots}</div><p class="panel-footnote">F — подбирать добычу · 1 — зелье здоровья<br>Предметы в экипировке также занимают ячейку.</p></div><div class="item-detail">${detail}</div></div>`;
+    return `<div class="inventory-heading"><span>${this.icon('coin')} ${me.gold} золота</span><span>${me.inventory.length} / ${INVENTORY_SIZE} ячеек</span></div><div class="inventory-layout"><div><div class="equipment-summary">${Object.keys(EQUIPMENT_SLOTS).map(slot => { const item = me.inventory.find(i => i.id === me.equipment[slot]); return `<button class="equipment-slot" ${item ? `data-item="${item.id}"` : 'disabled'}><small>${EQUIPMENT_SLOTS[slot].toUpperCase()}</small><span>${item ? this.itemName(item) : 'Не надето'}</span></button>`; }).join('')}</div><div class="inventory-grid">${slots}</div><p class="panel-footnote">F — подбирать добычу · 1 — зелье здоровья<br>Предметы в экипировке также занимают ячейку.</p></div><div class="item-detail">${detail}</div></div>`;
+  }
+  upgradeButton(me, item) {
+    const nearSmith = this.ui.state.survival?.phase !== 'night' && distance(me, NPCS.find(n => n.id === 'smith')) <= 105;
+    const maxed = (item.upgrade || 0) >= MAX_UPGRADE;
+    return this.button(maxed ? 'Максимум +10' : `Улучшить · ${upgradePrice(item)} золота`, { type: 'upgrade', npcId: 'smith', itemId: item.id }, 'secondary-button', maxed || !nearSmith || me.gold < upgradePrice(item));
   }
   character(me) {
     const stats = effectiveStats(me), cls = CLASSES[me.classId];
@@ -197,11 +207,11 @@ export class RpgInterface {
       const village = this.ui.state.village;
       body += `<div class="smith-upgrade"><h3>Защита деревни</h3><p class="muted">${Math.ceil(village.hp)} / ${village.maxHp}. Ремонт добавляет 150 защиты.</p>${this.button('Восстановить · 15 золота', { type: 'village:repair', npcId: npc.id }, 'secondary-button', village.hp >= village.maxHp || me.gold < 15 || this.ui.state.survival?.wave?.status === 'active')}</div>`;
     }
-    const stock = npc.id === 'merchant' ? ['health', 'mana', 'armor', 'ring'] : npc.id === 'smith' ? [CLASSES[me.classId].weapon, 'armor'] : [];
+    const stock = shopStock(npc.id, me.classId);
     body += stock.length ? `<div class="field-label shop-gold">ВАШ КОШЕЛЁК · ${me.gold} ЗОЛОТА</div><div class="shop-list">${stock.map(id => `<div>${this.icon(ITEMS[id].icon)}<span><strong>${ITEMS[id].name}</strong><small>${ITEMS[id].price} золота</small></span>${this.button('Купить', { type: 'buy', npcId: npc.id, baseId: id }, 'shop-buy', me.gold < ITEMS[id].price)}</div>`).join('')}</div>` : '';
     if (npc.id === 'smith') {
-      const weapon = me.inventory.find(i => i.id === me.equipment.weapon);
-      body += `<div class="smith-upgrade"><h3>Закалка оружия</h3><p class="muted">${weapon ? `${this.itemName(weapon)} · ${weapon.upgrade}/3` : 'Сначала наденьте оружие'}</p>${this.button(weapon?.upgrade < 3 ? `Улучшить · ${20 * (weapon.upgrade + 1)} золота` : 'Максимальное улучшение', { type: 'upgrade', npcId: npc.id }, 'secondary-button', !weapon || weapon.upgrade >= 3 || me.gold < 20 * (weapon.upgrade + 1))}</div>`;
+      const gear = me.inventory.filter(i => Object.hasOwn(EQUIPMENT_SLOTS, ITEMS[i.baseId].type));
+      body += `<div class="smith-upgrade"><h3>Закалка снаряжения · до +10</h3><p class="muted">Оружие, броня, сапоги, щит, шлем и кольцо. Улучшать можно и вещи из рюкзака.</p><div class="shop-list">${gear.map(item => `<div>${this.icon(ITEMS[item.baseId].icon)}<span><strong>${this.itemName(item)}</strong><small>${EQUIPMENT_SLOTS[ITEMS[item.baseId].type]} · ${item.upgrade || 0} / ${MAX_UPGRADE}${Object.values(me.equipment).includes(item.id) ? ' · надето' : ''}</small></span>${this.upgradeButton(me, item)}</div>`).join('')}</div></div>`;
     }
     if (npc.id === 'merchant') {
       const sellable = me.inventory.filter(i => !i.starter && !Object.values(me.equipment).includes(i.id));

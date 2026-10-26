@@ -8,6 +8,7 @@ import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { createGameServer } from '../server/index.js';
 import { SURVIVAL, CYCLE_MS } from '../shared/survival.js';
+import { spawnMonster } from '../server/spawns.js';
 import { damageMonster } from '../server/combat.js';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -100,7 +101,7 @@ test('two real sockets: world creation, movement, team combat, disconnect, rejoi
     // Place an enemy in reach inside the running authoritative server, then attack through the real socket protocol.
     const world = server.worlds.get(worldId), pa = world.players.get(created.playerId), pb = world.players.get(joined.playerId);
     pa.x = 1930; pa.y = 1152; pb.x = 1925; pb.y = 1180;
-    const monster = world.monsters[0]; monster.x = 1970; monster.y = 1152; monster.hp = 24;
+    const monster = spawnMonster(world, 'wolf', 1970, 1152); monster.x = 1970; monster.y = 1152; monster.hp = 24;
     const attacks = setInterval(() => a.emit('input', { x: 0, y: 0, angle: 0, attack: true }), 35);
     await waitUntil(() => lastB?.kills === 1);
     clearInterval(attacks); a.emit('input', { x: 0, y: 0, angle: 0 });
@@ -125,7 +126,7 @@ test('two real sockets: world creation, movement, team combat, disconnect, rejoi
     const restoredHero = restored.state.players.find(p => p.id === created.playerId);
     assert.equal(restoredHero.xp, xp); assert.equal(restoredHero.gold, gold);
     assert.equal(restored.state.kills, 1); assert.equal(restored.state.elapsed, pausedAt);
-    assert.equal(server.worlds.get(worldId).monsters[0].hp, 0);
+    assert.ok(!server.worlds.get(worldId).monsters.some(m => m.hp > 0));
     assert.equal(restored.state.players.length, 2);
   } finally {
     a?.disconnect(); b?.disconnect(); c?.disconnect(); await server?.close();
@@ -148,7 +149,7 @@ test('RPG protocol: mixed classes, projectile damage, cooperative quest progress
     for (const socket of [a, b]) assert.equal((await request(socket, 'rpg:action', { type: 'quest:accept', npcId: 'hunter', questId: 'wolves' })).ok, true);
     await delay(90);
     pa.x = 1930; pa.y = 1152; pb.x = 1940; pb.y = 1172;
-    const m = world.monsters[0]; m.x = 2010; m.y = 1152; m.hp = 20;
+    const m = spawnMonster(world, 'wolf', 2010, 1152); m.x = 2010; m.y = 1152; m.hp = 20;
     let stateB; b.on('state', state => { stateB = state; });
     const cast = await request(a, 'ability', { key: 'q', x: 2010, y: 1152 }); assert.equal(cast.ok, true);
     await waitUntil(() => stateB?.kills === 1);
@@ -175,7 +176,7 @@ test('RPG protocol: mixed classes, projectile damage, cooperative quest progress
   }
 });
 
-test('survival protocol synchronizes fifth-night boss, clock, village damage, reconnect and restart', { timeout: 15000 }, async () => {
+test('survival protocol synchronizes second-night boss, clock, village damage, reconnect and restart', { timeout: 15000 }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'village-night-'));
   const database = path.join(directory, 'survival.sqlite');
   let server, a, b;
@@ -186,9 +187,9 @@ test('survival protocol synchronizes fifth-night boss, clock, village damage, re
     const joined = await request(b, 'world:enter', { mode: 'join', name: 'Друг', code: created.state.code });
     const world = server.worlds.get(created.state.id);
     let sa, sb; a.on('state', s => { sa = s; }); b.on('state', s => { sb = s; });
-    world.survival.clockMs = 4 * CYCLE_MS + SURVIVAL.dayMs - 50;
+    world.survival.clockMs = CYCLE_MS + SURVIVAL.dayMs - 50;
     await waitUntil(() => sa?.survival.phase === 'night' && sb?.survival.wave.bossSpawned);
-    assert.equal(sa.survival.nightNumber, 5); assert.equal(sa.survival.wave.id, sb.survival.wave.id);
+    assert.equal(sa.survival.nightNumber, 2); assert.equal(sa.survival.wave.id, sb.survival.wave.id);
     const boss = world.monsters.find(m => m.kind === 'guardian');
     assert.ok(sa.monsters.some(m => m.id === boss.id)); assert.ok(sb.monsters.some(m => m.id === boss.id));
     world.village.hp = 700;

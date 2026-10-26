@@ -1,10 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnMonster } from '../server/spawns.js';
+import { SURVIVAL } from '../shared/survival.js';
+import { updateMonsters } from '../server/ai.js';
 import { GameWorld } from '../server/world.js';
 import { WORLD, PLAYER, MONSTERS, distance } from '../shared/config.js';
 import { canStand, createMap } from '../shared/map.js';
 import { attack, hurtPlayer } from '../server/combat.js';
 import { SaveStore } from '../server/persistence.js';
+
+function combatWorld() {
+  const world = new GameWorld();
+  world.survival.clockMs = SURVIVAL.dayMs; world.survival.lastNight = 1;
+  spawnMonster(world, 'wolf', 2100, 1152); return world;
+}
 
 test('deterministic nonempty map, valid spawn and monster homes', () => {
   assert.deepEqual(createMap(42), createMap(42));
@@ -37,7 +46,7 @@ test('collisions stop movement and dashes cannot cross walls', () => {
 });
 
 test('shared enemy damage, attack cooldown, team experience and no double rewards', () => {
-  const world = new GameWorld(); const a = world.join('a', 'A', 'ranger'), b = world.join('b', 'B', 'sage');
+  const world = combatWorld(); const a = world.join('a', 'A', 'ranger'), b = world.join('b', 'B', 'sage');
   world.monsters = [{ ...world.monsters[0], x: a.x + 45, y: a.y, hp: 48, maxHp: 64 }];
   a.angle = 0; b.x = a.x + 10; b.y = a.y + 20;
   world.random = () => .5;
@@ -55,7 +64,7 @@ test('shared enemy damage, attack cooldown, team experience and no double reward
 });
 
 test('attacks check direction and range and grant levels', () => {
-  const world = new GameWorld(), p = world.join('a', 'A', 'ranger');
+  const world = combatWorld(), p = world.join('a', 'A', 'ranger');
   world.random = () => .5;
   const m = world.monsters[0]; m.x = p.x + 40; m.y = p.y; m.hp = 24;
   p.angle = Math.PI; attack(world, p); assert.equal(m.hp, 24);
@@ -64,7 +73,7 @@ test('attacks check direction and range and grant levels', () => {
 });
 
 test('death respawns in village; world pauses with no connected heroes', () => {
-  const world = new GameWorld(), p = world.join('a', 'A', 'ranger');
+  const world = combatWorld(), p = world.join('a', 'A', 'ranger');
   p.hp = 1; const m = world.monsters[0]; hurtPlayer(world, m, p);
   assert.equal(p.hp, 0); assert.equal(p.respawnAt, PLAYER.respawnDelay);
   for (let i = 0; i < 101; i++) world.tick(.05);
@@ -73,23 +82,21 @@ test('death respawns in village; world pauses with no connected heroes', () => {
   world.tick(1); assert.equal(world.elapsed, elapsed);
 });
 
-test('monster patrol, pursuit, safe-zone boundary, and return behavior', () => {
-  const world = new GameWorld(), p = world.join('a', 'A', 'ranger');
-  const monster = world.monsters[0]; world.monsters = [monster];
-  p.x = 1800; p.y = 1152; world.tick(.05);
-  assert.equal(monster.state, 'patrol');
-  p.x = monster.x + 90; p.y = monster.y; world.tick(.05);
-  assert.equal(monster.state, 'chase');
+test('monsters pursue heroes across the map, including the village, without a home leash', () => {
+  const world = combatWorld(), p = world.join('a', 'A', 'ranger'), monster = world.monsters[0];
   p.x = WORLD.spawn.x; p.y = WORLD.spawn.y;
-  monster.x = monster.homeX + 130; world.tick(.05);
-  assert.equal(monster.state, 'return');
+  monster.x = 2500; monster.y = 1152;
+  updateMonsters(world, .05); assert.equal(monster.state, 'chase'); assert.equal(monster.targetId, p.id);
+  monster.x = p.x + 40; monster.y = p.y;
+  updateMonsters(world, .05); assert.equal(monster.targetId, p.id);
+  p.hp = 0; updateMonsters(world, .05); assert.equal(monster.state, 'roam');
 });
 
 test('SQLite transaction saves both heroes and enemies, identity is separate from world, corrupted snapshot recovers', () => {
   const store = new SaveStore(':memory:');
   const token = 'secure-token-'.repeat(5), id = store.identity(token);
   assert.equal(store.identity(token), id);
-  const world = new GameWorld(); const p = world.join(id, 'A', 'ranger');
+  const world = combatWorld(); const p = world.join(id, 'A', 'ranger');
   p.xp = 42; world.monsters[0].hp = 17; store.save(world.serialize());
   p.xp = 60; store.save(world.serialize());
   assert.equal(store.load(world.code).players[0].xp, 60);

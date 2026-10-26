@@ -27,10 +27,11 @@ export class WorldScene extends Phaser.Scene {
       this.add.text(b.x, b.y + 37, b.name, { fontFamily: 'Georgia, serif', fontSize: '11px', color: '#eee7c6', stroke: '#293d2e', strokeThickness: 3 }).setOrigin(.5).setAlpha(.8).setDepth(b.y + 22);
     }
     this.add.image(1536, 1152, 'fountain').setOrigin(.5, .72).setDepth(1175);
+    this.npcObjects = [];
     for (const npc of NPCS) {
-      this.add.image(npc.x, npc.y, `hero-${npc.appearance}-0`).setOrigin(.5, .92).setDepth(npc.y);
-      this.add.text(npc.x, npc.y - 62, npc.id === 'hunter' || npc.id === 'elder' ? '!' : '◆', { fontFamily: 'Georgia', fontSize: '20px', color: '#e5ca83', stroke: '#243d2e', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2);
-      this.add.text(npc.x, npc.y + 10, npc.name, { fontFamily: 'Georgia', fontSize: '10px', color: '#eadbb1', stroke: '#253b2b', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2);
+      this.npcObjects.push(this.add.image(npc.x, npc.y, `hero-${npc.appearance}-0`).setOrigin(.5, .92).setDepth(npc.y));
+      this.npcObjects.push(this.add.text(npc.x, npc.y - 62, npc.id === 'hunter' || npc.id === 'elder' ? '!' : '◆', { fontFamily: 'Georgia', fontSize: '20px', color: '#e5ca83', stroke: '#243d2e', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2));
+      this.npcObjects.push(this.add.text(npc.x, npc.y + 10, npc.name, { fontFamily: 'Georgia', fontSize: '10px', color: '#eadbb1', stroke: '#253b2b', strokeThickness: 3 }).setOrigin(.5).setDepth(npc.y + 2));
     }
     this.add.image(1880, 1110, 'sign').setOrigin(.5, 1).setDepth(1110);
     this.add.text(1880, 1067, 'ТЁМНЫЙ ЛЕС →', { fontFamily: 'monospace', fontSize: '8px', color: '#3c442d' }).setOrigin(.5).setDepth(1111);
@@ -87,8 +88,8 @@ export class WorldScene extends Phaser.Scene {
   makeView(data, player) {
     const shadow = this.add.ellipse(0, 1, player ? 29 : 37, 11, 0x15261c, .4);
     const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player);
-    const sprite = this.add.sprite(0, 0, player ? `class-${data.classId || 'warrior'}-${data.appearance}-0` : data.kind).setOrigin(.5, .92);
-    const label = this.add.text(0, player ? -55 : data.kind === 'guardian' ? -158 : -48, player ? data.name : data.kind === 'guardian' ? MONSTERS.guardian.name : data.elite ? '★ Усиленный' : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#d4cca3', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
+    const sprite = this.add.sprite(0, 0, player ? `class-${data.classId || 'warrior'}-${data.appearance}-0` : data.kind === 'guardian' ? `guardian-${data.variant || 'forest'}` : data.kind).setOrigin(.5, .92);
+    const label = this.add.text(0, player ? -55 : data.kind === 'guardian' ? -158 : -48, player ? data.name : data.kind === 'guardian' ? data.name || MONSTERS.guardian.name : data.elite ? '★' : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#d4cca3', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
     if (data.elite) sprite.setTint(0xc7b1dd);
     const health = this.add.graphics();
     const container = this.add.container(data.x, data.y, [shadow, ring, sprite, label, health]);
@@ -96,6 +97,7 @@ export class WorldScene extends Phaser.Scene {
   }
   sync(state) {
     if (!this.sys.isActive()) return;
+    for (const object of this.npcObjects) object.setVisible(state.survival?.phase !== 'night');
     const visible = new Set();
     for (const data of [...state.players.filter(p => p.online), ...state.monsters]) {
       visible.add(data.id);

@@ -29,3 +29,14 @@
 @media(max-height:760px){.survival-panel{top:250px}.boss-hud{top:109px}.survival-banner{top:27%}}
 @media(max-width:850px){.survival-panel{right:14px;width:172px;top:215px;padding:10px}.survival-heading{font-size:6px;letter-spacing:1px}.survival-heading>span:last-child{font-size:11px}#wave-summary{font-size:8px}.village-defense-label{font-size:6px}.village-defense-label .icon{width:9px;height:9px}.survival-panel>small{font-size:6px}.boss-hud{top:150px;width:300px}.boss-hud-label{font-size:7px}.boss-hud-label>small{font-size:6px}.survival-banner>div{font-size:22px}.survival-banner>p{font-size:9px}}
 @media(max-width:650px){.survival-panel{top:155px;right:10px;width:145px;padding:9px}.survival-heading{font-size:6px;letter-spacing:.5px}.survival-heading>span:first-child{gap:4px}.survival-heading .icon{width:10px;height:10px}.survival-heading>span:last-child{font-size:10px}.cycle-track{margin:7px 0}.village-defense-label{font-size:5px;letter-spacing:0}.survival-panel>small{font-size:5px;line-height:1.6}#wave-summary{font-size:7px;min-height:25px}.village-defense-label{margin-top:6px}.survival-panel .village-defense-track{height:4px;margin-top:5px}.boss-hud{top:auto;bottom:221px;width:calc(100vw - 36px);max-width:340px}.boss-hud>small{font-size:6px}.boss-hud-label{font-size:7px}.boss-hp-track{height:13px}.survival-banner{top:37%;padding:18px 12px}.survival-banner>div{font-size:19px;letter-spacing:1px}.survival-banner>p{font-size:8px}.survival-guide p{font-size:11px}.location-label{top:145px;left:28%;max-width:160px}.location-label h2{font-size:16px}.location-label .eyebrow{font-size:4px;letter-spacing:.8px}.field-notes{top:190px;max-width:155px}.field-notes h3{font-size:14px}}
+
+.equipment-slot { min-width:0; padding:10px; text-align:left; background:#1c2a23; border:1px solid #4e5941; color:#e3dfc9; border-radius:6px; cursor:pointer; }
+.equipment-slot small { display:block; color:#a7ac8e; font-size:9px; letter-spacing:.1em; margin-bottom:5px; }
+.equipment-slot span { display:block; font-size:11px; line-height:1.5; }
+.equipment-slot:disabled { cursor:default; opacity:.6; }
+.equipment-slot:hover:not(:disabled) { border-color:#c6b477; }
+.item-upgrade { border-top:1px solid #47503c; margin-top:16px; padding-top:12px; display:grid; gap:10px; }
+.item-upgrade small { color:#cbbd8b; }
+.smith-upgrade .shop-list .secondary-button { min-width:155px; font-size:11px; }
+
+.item-bonuses span { display:inline-block; margin:0 10px 8px 0; }

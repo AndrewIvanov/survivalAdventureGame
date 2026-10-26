@@ -8,7 +8,7 @@ export class SurvivalScene {
   create() {
     const scene = this.scene; createSurvivalArt(scene);
     scene.add.image(SURVIVAL.shrine.x, SURVIVAL.shrine.y, 'shrine').setOrigin(.5, .86).setDepth(SURVIVAL.shrine.y);
-    scene.add.text(SURVIVAL.shrine.x, SURVIVAL.shrine.y - 100, 'АЛТАРЬ СТРАЖА', { fontFamily: 'Georgia', fontSize: '10px', color: '#d1d8ad', stroke: '#253b30', strokeThickness: 3 }).setOrigin(.5).setDepth(SURVIVAL.shrine.y + 1);
+    scene.add.text(SURVIVAL.shrine.x, SURVIVAL.shrine.y - 100, 'ОБЕЛИСК ПРИЗЫВА', { fontFamily: 'Georgia', fontSize: '10px', color: '#d1d8ad', stroke: '#253b30', strokeThickness: 3 }).setOrigin(.5).setDepth(SURVIVAL.shrine.y + 1);
     this.tint = scene.add.rectangle(0, 0, WORLD.width, WORLD.height, 0x101a40, 1).setOrigin(0).setDepth(15000).setAlpha(0);
     this.glows = [[1410,1048],[1660,1048],[1420,1198],[1665,1198],[1840,1088],[1220,1108],[1536,1120]].map(([x, y]) => scene.add.image(x, y, 'warm-glow').setScale(1.25).setBlendMode(Phaser.BlendModes.ADD).setDepth(15500).setAlpha(0));
     this.heroGlow = scene.add.image(0, 0, 'warm-glow').setScale(1.1).setBlendMode(Phaser.BlendModes.ADD).setDepth(15500).setAlpha(0).setTint(0xb9c7cf);

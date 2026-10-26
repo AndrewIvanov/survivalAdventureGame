@@ -1,10 +1,12 @@
-import { ATTRIBUTES, CLASSES, ITEMS, NPCS, CHESTS, ABILITIES, effectiveStats } from '../shared/rpg.js';
+import { ATTRIBUTES, CLASSES, ITEMS, NPCS, CHESTS, ABILITIES, effectiveStats, EQUIPMENT_SLOTS, MAX_UPGRADE, upgradePrice, shopStock } from '../shared/rpg.js';
+import { clockInfo } from '../shared/survival.js';
 import { distance, inVillage } from '../shared/config.js';
 import { addItem, makeItem, inventoryAction, consumeItem, refreshStats } from './inventory.js';
 import { questAction, progressQuests } from './quests.js';
 import { summonGuardian } from './boss.js';
 
-export function nearbyNpc(player, npcId) {
+export function nearbyNpc(world, player, npcId) {
+  if (clockInfo(world.survival.clockMs).phase === 'night') throw new Error('Жители укрылись до рассвета. Приходите днём.');
   const npc = NPCS.find(n => n.id === npcId);
   if (!npc || distance(player, npc) > 105) throw new Error('Подойдите ближе к жителю деревни.');
   return npc;
@@ -44,7 +46,7 @@ export function rpgAction(world, player, action) {
     addItem(player, item); chest.claimedBy.push(player.id); player.gold += chest.supply ? 8 : 18;
     if (chest.supply) { player.supplies.push(chest.id); progressQuests(world, player, 'supplies'); }
   } else {
-    const npc = nearbyNpc(player, action.npcId);
+    const npc = nearbyNpc(world, player, action.npcId);
     if (action.type === 'village:repair') {
       if (npc.id !== 'elder') throw new Error('Восстановление организует староста.');
       if (world.survival.wave?.status === 'active') throw new Error('Сначала отбейте нападение.');
@@ -54,7 +56,7 @@ export function rpgAction(world, player, action) {
     }
     else if (['quest:accept', 'quest:claim'].includes(action.type)) questAction(world, player, action, npc);
     else if (action.type === 'buy') {
-      const stock = npc.id === 'merchant' ? ['health', 'mana', 'armor', 'ring'] : npc.id === 'smith' ? [CLASSES[player.classId].weapon, 'armor'] : [];
+      const stock = shopStock(npc.id, player.classId);
       if (!stock.includes(action.baseId)) throw new Error('Житель не продаёт этот предмет.');
       const base = ITEMS[action.baseId];
       if (player.gold < base.price) throw new Error('Не хватает золота.');
@@ -65,12 +67,13 @@ export function rpgAction(world, player, action) {
       if (!item || item.starter || Object.values(player.equipment).includes(item.id)) throw new Error('Этот предмет нельзя продать. Сначала снимите экипировку.');
       player.gold += Math.max(1, Math.floor(ITEMS[item.baseId].price * .4)); consumeItem(player, item);
     } else if (action.type === 'upgrade') {
-      if (npc.id !== 'smith') throw new Error('Оружие улучшает кузнец.');
-      const weapon = player.inventory.find(i => i.id === player.equipment.weapon);
-      if (!weapon || weapon.upgrade >= 3) throw new Error('Наденьте оружие. Максимум — 3 улучшения.');
-      const price = 20 * (weapon.upgrade + 1);
+      if (npc.id !== 'smith') throw new Error('Снаряжение улучшает кузнец.');
+      const item = player.inventory.find(i => i.id === (action.itemId || player.equipment.weapon));
+      if (!item || !Object.hasOwn(EQUIPMENT_SLOTS, ITEMS[item.baseId].type)) throw new Error('Выберите снаряжение из своего рюкзака.');
+      if (item.upgrade >= MAX_UPGRADE) throw new Error('Максимальный уровень улучшения — +10.');
+      const price = upgradePrice(item);
       if (player.gold < price) throw new Error('Не хватает золота.');
-      player.gold -= price; weapon.upgrade++; refreshStats(player);
+      player.gold -= price; item.upgrade = (item.upgrade || 0) + 1; refreshStats(player);
     } else throw new Error('Неизвестное действие.');
   }
   world.criticalSave = true;

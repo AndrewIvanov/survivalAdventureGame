@@ -13,6 +13,8 @@ const paths = {
   check: '<path d="m5 12 4 4L19 6"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   heart: '<path d="M20 5a5 5 0 0 0-8 1 5 5 0 0 0-8-1c-5 5 3 11 8 16 5-5 13-11 8-16Z"/>',
+  boots: '<path d="M5 3h8v9l6 3v5H4v-5l1-4Z"/><path d="M5 7h8M4 17h15"/>',
+  helmet: '<path d="M4 15V9a8 8 0 0 1 16 0v6l-5 4v-8H9v8Z"/><path d="M12 2v6M5 10h14"/>',
   shield: '<path d="m12 2 8 4v7c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="M12 7v9m-4-5h8"/>',
   bolt: '<path d="m13 2-9 12h7l-1 8 10-13h-8Z"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M14 8h-3a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4h-3m2-10v12"/>',

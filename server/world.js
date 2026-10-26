@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { WORLD, PLAYER, MONSTERS, distance, inVillage, clamp } from '../shared/config.js';
-import { createMap, createCollisionGrid, canStand, moveEntity, monsterSpawns, seeded } from '../shared/map.js';
+import { createMap, createCollisionGrid, canStand, moveEntity, seeded } from '../shared/map.js';
 import { attack, updateProjectiles } from './combat.js';
 import { updateMonsters } from './ai.js';
 import { grantExperience } from './progression.js';
@@ -9,7 +9,7 @@ import { effectiveStats } from '../shared/rpg.js';
 import { initializeChests } from './rpg.js';
 import { progressQuests } from './quests.js';
 import { updateZones } from './abilities.js';
-import { SURVIVAL, sheltered } from '../shared/survival.js';
+import { SURVIVAL, sheltered, clockInfo } from '../shared/survival.js';
 import { initializeSurvival, updateSurvival, resolveWave, survivalSnapshot } from './survival.js';
 import { updateBosses } from './boss.js';
 
@@ -35,11 +35,18 @@ export class GameWorld {
     this.monsterPool = [];
     this.survival = initializeSurvival(saved?.survival);
     this.village = { level: 1, buildings: this.map.buildings.map(b => b.id), maxHp: SURVIVAL.villageHp, hp: SURVIVAL.villageHp, failures: 0, ...saved?.village };
-    this.monsters = saved?.monsters || monsterSpawns.map(([x, y, kind], i) => {
-      let point = { x, y };
-      for (let r = 0; r < 200 && !canStand(point.x, point.y, this.grid, 14); r += 8) point = { x: x + Math.cos(r) * r, y: y + Math.sin(r) * r };
-      return { id: `monster-${i}`, kind, x: point.x, y: point.y, homeX: point.x, homeY: point.y, hp: MONSTERS[kind].hp, maxHp: MONSTERS[kind].hp, phase: i * 2.5, angle: 0, state: 'patrol', lastAttack: -2000, hurtUntil: 0, respawnAt: 0 };
+    const migrated = saved?.survival && saved.survival.rulesVersion !== 2;
+    this.monsters = structuredClone(saved?.monsters || []).filter(m => {
+      if (m.kind === 'guardian' && !m.raidId) return m.hp > 0;
+      return !migrated && clockInfo(this.survival.clockMs).phase === 'night';
     });
+    for (const monster of this.monsters) if (monster.kind === 'guardian' && !monster.raidId) {
+      monster.obelisk = true;
+      if (migrated) {
+        monster.hp *= 5; monster.maxHp *= 5; monster.damage *= 5;
+        this.survival.lastSummonDay = clockInfo(this.survival.clockMs).day;
+      }
+    }
     this.events = [];
     this.criticalSave = false;
     this.savedAt = null;
@@ -138,7 +145,7 @@ export class GameWorld {
     return {
       id: this.id, code: this.code, name: this.name, elapsed: this.elapsed, kills: this.kills, savedAt: this.savedAt,
       players: [...this.players.values()].map(({ input, inputAt, ...p }) => ({ ...p, hp: Math.ceil(p.hp) })),
-      monsters: this.monsters.filter(m => m.hp > 0 && (!player || distance(player, m) < 1150)).map(m => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: Math.ceil(m.hp), maxHp: m.maxHp, angle: m.angle, state: m.state, elite: m.elite, raidId: m.raidId, bossPhase: m.bossPhase, telegraph: m.telegraph })),
+      monsters: this.monsters.filter(m => m.hp > 0 && (!player || distance(player, m) < 1150)).map(m => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: Math.ceil(m.hp), maxHp: m.maxHp, angle: m.angle, state: m.state, elite: m.elite, variant: m.variant, name: m.name, damage: m.damage, raidId: m.raidId, bossPhase: m.bossPhase, telegraph: m.telegraph })),
       loot: this.loot.filter(l => (!l.ownerId || l.ownerId === playerId) && (!player || distance(l, player) < 1000)), chests: this.chests,
       projectiles: this.projectiles.map(({ hit, ...p }) => p), zones: this.zones,
       survival: survivalSnapshot(this), village: this.village,
@@ -147,7 +154,7 @@ export class GameWorld {
 
   serialize() {
     return {
-      version: 3, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
+      version: 4, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
       players: [...this.players.values()].map(({ input, inputAt, online, dashUntil, ...p }) => p),
       monsters: this.monsters.map(({ targetId, ...m }) => m),
       chests: this.chests, loot: this.loot,

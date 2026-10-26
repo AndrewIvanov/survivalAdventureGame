@@ -19,12 +19,13 @@ export function rewardKill(world, player, monster) {
     for (const ally of allies) {
       world.loot.push({ id: randomUUID(), ownerId: ally.id, x: monster.x + (allies.indexOf(ally) ? 20 : -20), y: monster.y + 15, item: makeItem(CLASSES[ally.classId].weapon, 'epic'), permanent: true });
     }
-    world.events.push({ type: 'boss-defeated', id: monster.id, name: config.name });
+    world.events.push({ type: 'boss-defeated', id: monster.id, name: monster.name || config.name });
     for (const add of world.monsters) if (add.summonOwner === monster.id && add.hp > 0) { add.hp = 0; add.state = 'retreat'; add.despawnAt = world.elapsed + 1500; }
   } else if (world.loot.length < 128 && !monster.summonOwner) {
     const roll = world.random();
     const rarity = roll < .015 ? 'legendary' : roll < .06 ? 'epic' : roll < .2 + (monster.elite ? .15 : 0) ? 'rare' : roll < .5 ? 'uncommon' : 'common';
-    const baseId = world.random() < .3 ? CLASSES[player.classId || 'warrior'].weapon : world.random() < .35 ? 'health' : monster.kind === 'wolf' ? 'hide' : 'ore';
+    const gear = [CLASSES[player.classId || 'warrior'].weapon, 'armor', 'boots', 'shield', 'helmet', 'ring'];
+    const baseId = world.random() < .3 ? gear[Math.min(gear.length - 1, Math.floor(world.random() * gear.length))] : world.random() < .35 ? 'health' : monster.kind === 'wolf' ? 'hide' : 'ore';
     world.loot.push({ id: randomUUID(), x: monster.x, y: monster.y, item: makeItem(baseId, rarity), expiresAt: world.elapsed + 600000 });
   }
   world.events.push({ type: 'kill', id: monster.id, x: monster.x, y: monster.y, xp: Math.round(config.xp * elite), gold: Math.round(config.gold * elite) });
