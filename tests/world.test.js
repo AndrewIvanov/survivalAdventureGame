@@ -46,6 +46,18 @@ test('collisions stop movement and dashes cannot cross walls', () => {
   assert.ok(canStand(p.x, p.y, world.grid));
 });
 
+test('heroes walk and dash through live trees, including after loading a saved world', () => {
+  const original = new GameWorld();
+  for (const world of [original, new GameWorld(original.serialize())]) {
+    const player = world.join('forest-walker', 'Следопыт', 'ranger');
+    const tree = world.map.trees.find(tree => Array.from({ length: 31 }, (_, i) => tree.x - 70 + i * 7).every(x => canStand(x, tree.y, world.grid)));
+    assert.ok(tree); player.x = tree.x - 60; player.y = tree.y;
+    world.move(player, 120, 0); assert.ok(Math.abs(player.x - tree.x - 60) < .001);
+    player.x = tree.x - 60; player.angle = 0; world.dash(player.id); world.tick(.1);
+    assert.ok(player.x > tree.x, 'dash crosses the trunk'); assert.ok(canStand(player.x, player.y, world.grid));
+  }
+});
+
 test('shared enemy damage, attack cooldown, team experience and no double rewards', () => {
   const world = combatWorld(); const a = world.join('a', 'A', 'ranger'), b = world.join('b', 'B', 'sage');
   world.monsters = [{ ...world.monsters[0], x: a.x + 45, y: a.y, hp: 24, maxHp: 64 }];

@@ -51,27 +51,29 @@ export class ProgressionInterface {
   }
   render(state, me) {
     if (!state || !me) return;
-    for (const [id, item] of [['wood', 'wood'], ['ore', 'ore'], ['fence', 'fenceKit']]) this.ui.$(`${id}-count`).textContent = materialCount(me, item);
-    this.ui.$('gather-goal').textContent = me.inventory.find(i => i.id === me.equipment.weapon)?.baseId === 'axe' ? 'F у дерева → 12 древесины → оружие на лесопилке' : !me.inventory.some(i => i.baseId === 'pickaxe') ? 'Мира: 100 дерева → 1 золото · Кирка: 10 монет' : 'Шахта на северо-западе → руда → кузница · M — карта';
+    for (const [id, item] of [['wood', 'wood'], ['ore', 'ore'], ['fence', 'fenceKit']]) this.ui.text(`${id}-count`, materialCount(me, item));
+    this.ui.text('gather-goal', me.inventory.find(i => i.id === me.equipment.weapon)?.baseId === 'axe' ? 'F у дерева → 12 древесины → оружие на лесопилке' : !me.inventory.some(i => i.baseId === 'pickaxe') ? 'Мира: 100 дерева → 1 золото · Кирка: 10 монет' : 'Шахта на северо-западе → руда → кузница · M — карта');
     const profession = professionOf(me), button = this.ui.$('profession-open');
-    button.textContent = profession ? `${profession.name} · ${this.ui.preferences.label('t')}: ${profession.skill}` : me.level >= PROFESSION_LEVEL ? 'Выбрать профессию · P' : `Профессия откроется на 10 уровне · сейчас ${me.level}`;
+    this.ui.text(button, profession ? `${profession.name} · ${this.ui.preferences.label('t')}: ${profession.skill}` : me.level >= PROFESSION_LEVEL ? 'Выбрать профессию · P' : `Профессия откроется на 10 уровне · сейчас ${me.level}`);
     button.classList.toggle('available', !profession && me.level >= PROFESSION_LEVEL);
-    const t = this.ui.$('ability-t'); t.disabled = !profession || me.hp <= 0;
-    t.querySelector('small').textContent = profession?.short || 'С 10 ур.';
-    t.querySelector('.ability-icon').innerHTML = this.icon(profession?.icon || 'flag');
+    const t = this.ui.$('ability-t'); this.ui.prop(t, 'disabled', !profession || me.hp <= 0);
+    this.ui.text(t.querySelector('small'), profession?.short || 'С 10 ур.');
+    this.ui.html(t.querySelector('.ability-icon'), this.icon(profession?.icon || 'flag'));
     const left = Math.max(0, (me.cooldowns.t || 0) - state.elapsed);
-    t.querySelector('.cooldown').hidden = left <= 0; t.querySelector('.cooldown').textContent = (left / 1000).toFixed(1);
-    t.title = profession ? `${profession.skill} · ${me.professionRank}/100 · ${profession.cost} энергии · ${profession.cooldown / 1000} с\n${profession.description}` : 'Выберите профессию на 10 уровне';
-    this.ui.$('quick-skill-points').textContent = `Навыки: ${me.skillPoints}`;
+    this.ui.prop(t.querySelector('.cooldown'), 'hidden', left <= 0); if (left > 0) this.ui.text(t.querySelector('.cooldown'), (left / 1000).toFixed(1));
+    this.ui.prop(t, 'title', profession ? `${profession.skill} · ${me.professionRank}/100 · ${profession.cost} энергии · ${profession.cooldown / 1000} с\n${profession.description}` : 'Выберите профессию на 10 уровне');
+    const skillSignature = [me.classId, me.profession, me.professionRank, me.abilityRanks.q, me.abilityRanks.e, me.abilityRanks.r, me.stats.damage, me.stats.maxHp].join(':');
+    const skillsChanged = skillSignature !== this.skillSignature; this.skillSignature = skillSignature;
+    this.ui.text('quick-skill-points', `Навыки: ${me.skillPoints}`);
     for (const key of ['q', 'e', 'r', 't']) {
       const plus = this.ui.$(`quick-upgrade-${key}`), rank = skillRank(me, key);
-      plus.querySelector('span').textContent = `${rank}/100`;
-      plus.title = `${skillSummary(me, key)}\n+1 ранг · Shift + клик: до +10`;
-      plus.hidden = key === 't' && !profession;
-      plus.disabled = !!this.upgrading || me.hp <= 0 || me.skillPoints <= 0 || rank >= MAX_SKILL_RANK;
+      this.ui.text(plus.querySelector('span'), `${rank}/100`);
+      if (skillsChanged) plus.title = `${skillSummary(me, key)}\n+1 ранг · Shift + клик: до +10`;
+      this.ui.prop(plus, 'hidden', key === 't' && !profession);
+      this.ui.prop(plus, 'disabled', !!this.upgrading || me.hp <= 0 || me.skillPoints <= 0 || rank >= MAX_SKILL_RANK);
     }
     if (!materialCount(me, 'fenceKit') || state.gameOver || me.hp <= 0) this.ui.scene.buildMode = false;
-    this.ui.$('build-hint').hidden = !this.ui.scene.buildMode;
+    this.ui.prop('build-hint', 'hidden', !this.ui.scene.buildMode);
     this.ui.$('build-toggle').classList.toggle('active', !!this.ui.scene.buildMode);
     this.renderPreview(me);
     if (this.handles(this.ui.panel)) this.refresh(me);
@@ -79,14 +81,17 @@ export class ProgressionInterface {
   handles(type) { return ['profession', 'fence'].includes(type); }
   renderPreview(me) {
     const box = this.ui.$('skill-upgrade-preview'), key = this.previewKey;
-    if (!me || !key || this.ui.panel || this.ui.state?.gameOver) { box.hidden = true; return; }
-    const detail = skillComparison(me, key); if (!detail) { box.hidden = true; return; }
+    if (!me || !key || this.ui.panel || this.ui.state?.gameOver) { this.ui.prop(box, 'hidden', true); return; }
+    const signature = `${key}:${this.skillSignature}`;
+    if (this.previewSignature === signature && !box.hidden) return;
+    this.previewSignature = signature;
+    const detail = skillComparison(me, key); if (!detail) { this.ui.prop(box, 'hidden', true); return; }
     const html = `<strong>${detail.name}</strong><small>Ранг ${detail.rank}/100${detail.rank < 100 ? ` → ${detail.nextRank}/100` : ' · Максимум'}</small>${skillDetails(me, key)}<p>${detail.notes.join(' ')}</p>`;
-    if (box.innerHTML !== html) box.innerHTML = html; box.hidden = false;
+    this.ui.html(box, html); this.ui.prop(box, 'hidden', false);
   }
   open(type) {
     this.ui.modalReturnFocus = document.activeElement; this.ui.panel = type; this.ui.scene.pausedInput = true; this.ui.scene.buildMode = false;
-    this.ui.scene.input?.keyboard?.resetKeys(); this.ui.$('modal-backdrop').hidden = false;
+    this.ui.scene.input?.keyboard?.resetKeys(); this.ui.prop('modal-backdrop', 'hidden', false);
     this.ui.$('modal').classList.toggle('wide', type === 'profession'); this.signature = ''; this.refresh(this.me()); this.ui.$('close-modal')?.focus();
   }
   refresh(me) {
@@ -103,7 +108,7 @@ export class ProgressionInterface {
       const cost = fenceUpgradeCost(fence.level + 1), repair = { wood: Math.max(1, Math.ceil((fence.maxHp - fence.hp) / 50)), ore: 1, gold: fence.level * 2 };
       body = `<div class="fence-detail">${this.icon('box')}<h3>Забор · уровень ${fence.level} / ${FENCES.maxLevel}</h3><p>${Math.ceil(fence.hp)} / ${fence.maxHp} прочности</p>${button(fence.level >= 10 ? 'Максимальный уровень 10' : `Улучшить · ${costText(cost)}`, { type: 'build:upgrade', structureId: fence.id }, 'primary-button', fence.level >= 10 || !canAfford(me, cost))}${button(`Починить · ${costText(repair)}`, { type: 'build:repair', structureId: fence.id }, 'secondary-button', fence.hp >= fence.maxHp || !canAfford(me, repair))}${button('Разобрать секцию', { type: 'build:remove', structureId: fence.id }, 'text-button')}<p class="panel-footnote">Монстры ломают заборы, которые мешают им добраться до героев. При разборке материалы не возвращаются.</p></div>`;
     }
-    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${type === 'profession' ? 'Выберите свой путь' : 'Укрепление забора'}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${body}`;
+    this.ui.html('modal', `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${type === 'profession' ? 'Выберите свой путь' : 'Укрепление забора'}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${body}`);
     this.ui.$('close-modal').onclick = () => this.ui.closePanel();
     this.ui.$('modal').querySelectorAll('[data-action]').forEach(b => b.onclick = async () => {
       b.disabled = true; const action = JSON.parse(b.dataset.action);

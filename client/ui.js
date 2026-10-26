@@ -10,6 +10,7 @@ import { NPCS } from '../shared/rpg.js';
 import { NoticeGate, noticeKey } from './notices.js';
 import { GamePreferences } from './preferences.js';
 import { PreferencesInterface } from './preferences-ui.js';
+import { updateText, updateHTML, updateProperty } from './render-cache.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
@@ -85,9 +86,15 @@ export class Interface {
       <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal" class="modal panel" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section></div>
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
       <div id="discovery" class="discovery" hidden><div class="eyebrow">ОТКРЫТА НОВАЯ ТЕРРИТОРИЯ</div><h2>Тёмный лес</h2><span>+15 опыта за исследование</span></div>`;
-    this.$ = id => document.getElementById(id);
+    const nodes = new Map();
+    this.$ = id => { let node = nodes.get(id); if (!node?.isConnected) { node = document.getElementById(id); if (node) nodes.set(id, node); } return node; };
+    this.text = (target, value) => updateText(typeof target === 'string' ? this.$(target) : target, value);
+    this.html = (target, value) => updateHTML(typeof target === 'string' ? this.$(target) : target, value);
+    this.prop = (target, key, value) => updateProperty(typeof target === 'string' ? this.$(target) : target, key, value);
+    this.style = (target, key, value) => updateProperty((typeof target === 'string' ? this.$(target) : target).style, key, value);
   }
   bind() {
+    document.addEventListener('pointerdown', event => { if (event.target.closest?.('#game canvas')) document.activeElement?.blur(); });
     document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => this.setMode(button.dataset.mode)));
     document.querySelectorAll('[data-appearance]').forEach(button => button.addEventListener('click', () => {
       this.appearance = button.dataset.appearance;
@@ -100,7 +107,7 @@ export class Interface {
     this.$('settings-button').onclick = () => this.openPanel('settings');
     this.$('help-button').onclick = () => this.openPanel('help');
     this.$('attack-info').onclick = () => this.toast('Удерживайте ЛКМ над миром. Воин бьёт мечом, маг и лучник стреляют в сторону курсора.');
-    this.$('dash-button').onclick = () => this.net.dash();
+    this.$('dash-button').onclick = () => this.scene.dash();
     this.$('invite-button').onclick = () => this.copy(this.state?.code, 'Код мира скопирован. Отправьте его другу вместе с адресом игры.');
     this.$('fullscreen-button').onclick = async () => {
       try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
@@ -110,8 +117,8 @@ export class Interface {
     this.$('modal-backdrop').addEventListener('click', event => { if (event.target === this.$('modal-backdrop')) this.closePanel(); });
     document.addEventListener('keydown', event => {
       if (event.code === 'Escape' && event.repeat) return;
-      if (event.code === 'Escape' && this.scene.buildMode) { event.preventDefault(); this.scene.buildMode = false; this.$('build-hint').hidden = true; return; }
-      if (event.code === 'Escape' && !this.$('chat-body').hidden && (!this.preferences.compactHud || this.$('chat-panel').classList.contains('chat-peek')) && !this.panel && !this.state?.gameOver) {
+      if (event.code === 'Escape' && this.scene.buildMode) { event.preventDefault(); this.scene.buildMode = false; this.prop('build-hint', 'hidden', true); return; }
+      if (event.code === 'Escape' && !this.$('chat-body').hidden && ((!this.preferences.compactHud && this.preferences.leftPanelOpen) || this.$('chat-panel').classList.contains('chat-peek')) && !this.panel && !this.state?.gameOver) {
         event.preventDefault(); this.chat.setOpen(false); return;
       }
       if (this.net.active && this.state?.gameOver) {
@@ -128,7 +135,7 @@ export class Interface {
         else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0]?.focus(); }
       }
       if (/INPUT|TEXTAREA/.test(event.target.tagName) && event.code !== 'Escape') return;
-      if (this.net.active && !this.panel && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
+      if (this.net.active && !this.panel && event.code === 'Space') { event.preventDefault(); if (!event.repeat) this.scene.dash(); return; }
       if (event.code === 'Escape') { event.preventDefault(); this.panel ? this.closePanel() : this.net.active && this.openPanel('settings'); }
       if (!this.net.active || event.repeat) return;
       if (event.code === 'KeyM') { event.preventDefault(); this.panel === 'map' ? this.closePanel() : this.openPanel('map'); }
@@ -137,19 +144,19 @@ export class Interface {
     this.net.on('connection', ({ connected }) => {
       this.connected = connected;
       this.$('menu-status').classList.toggle('online', connected);
-      this.$('menu-status-text').textContent = connected ? 'Сервер подключён' : 'Подключаемся к серверу…';
-      this.$('reconnect-banner').hidden = connected || !this.net.active;
+      this.text('menu-status-text', connected ? 'Сервер подключён' : 'Подключаемся к серверу…');
+      this.prop('reconnect-banner', 'hidden', connected || !this.net.active);
     });
     this.net.on('ready', () => this.refreshWorlds());
     this.net.on('entered', () => {
-      this.$('main-menu').hidden = true; this.$('hud').hidden = false; this.closePanel();
+      this.prop('main-menu', 'hidden', true); this.prop('hud', 'hidden', false); this.closePanel();
       document.activeElement?.blur();
     });
     this.net.on('state', state => this.render(state));
     this.net.on('notice', notice => this.toast(notice.message, notice.type));
-    this.net.on('left', () => { this.$('hud').hidden = true; this.$('main-menu').hidden = false; this.closePanel(); this.refreshWorlds(); });
+    this.net.on('left', () => { this.prop('hud', 'hidden', true); this.prop('main-menu', 'hidden', false); this.closePanel(); this.refreshWorlds(); });
     this.net.on('replaced', () => {
-      this.scene.reset(); this.$('hud').hidden = true; this.$('main-menu').hidden = false; this.closePanel();
+      this.scene.reset(); this.prop('hud', 'hidden', true); this.prop('main-menu', 'hidden', false); this.closePanel();
       this.toast('Этот герой открыт в другой вкладке. Закройте её, чтобы продолжить здесь.', 'error');
     });
     this.net.on('effects', events => {
@@ -157,8 +164,8 @@ export class Interface {
         if (e.type === 'discover' && e.id === this.net.playerId) {
           if (!this.notices.take('discovery')) continue;
           if (this.$('survival-banner') && !this.$('survival-banner').hidden) { this.toast(`Открыт Тёмный лес · +${e.xp} опыта`); continue; }
-          this.$('discovery').hidden = false; clearTimeout(this.discoveryTimer);
-          this.discoveryTimer = setTimeout(() => { this.$('discovery').hidden = true; }, 4500);
+          this.prop('discovery', 'hidden', false); clearTimeout(this.discoveryTimer);
+          this.discoveryTimer = setTimeout(() => { this.prop('discovery', 'hidden', true); }, 4500);
         }
         if (e.type === 'level' && e.id === this.net.playerId) this.toast(`Уровень ${e.level}! Здоровье восстановлено, сила атаки увеличена.`);
       }
@@ -176,19 +183,19 @@ export class Interface {
   setMode(mode) {
     this.mode = mode;
     document.querySelectorAll('[data-mode]').forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
-    this.$('code-field').hidden = mode !== 'join';
+    this.prop('code-field', 'hidden', mode !== 'join');
     this.$('room-code').required = mode === 'join';
     this.$('start-button').querySelector('span').textContent = mode === 'join' ? 'Присоединиться к другу' : 'Создать приключение';
-    this.$('form-error').hidden = true;
+    this.prop('form-error', 'hidden', true);
   }
   async enter(code) {
     const button = this.$('start-button'); button.disabled = true;
-    this.$('form-error').hidden = true;
+    this.prop('form-error', 'hidden', true);
     const name = this.$('hero-name').value.trim();
     localStorage.setItem('village-survival:name', name);
     try {
       await this.net.enter({ mode: code ? 'join' : this.mode, code: code || this.$('room-code').value, name, appearance: this.appearance, classId: this.rpg.classId });
-    } catch (error) { this.$('form-error').textContent = error.message; this.$('form-error').hidden = false; }
+    } catch (error) { this.text('form-error', error.message); this.prop('form-error', 'hidden', false); }
     finally { button.disabled = false; }
   }
   async refreshWorlds() {
@@ -206,39 +213,42 @@ export class Interface {
     this.state = state;
     const me = state.players.find(p => p.id === this.net.playerId);
     if (!me) return;
-    this.$('hero-label').textContent = me.name;
-    this.$('hero-level').textContent = me.level;
-    this.$('hero-portrait').querySelector('.portrait-art').className = `portrait-art ${me.appearance}`;
-    this.$('hp-fill').style.width = `${me.hp / me.maxHp * 100}%`;
+    this.text('hero-label', me.name);
+    this.text('hero-level', me.level);
+    this.prop(this.$('hero-portrait').querySelector('.portrait-art'), 'className', `portrait-art ${me.appearance}`);
+    this.style('hp-fill', 'width', `${me.hp / me.maxHp * 100}%`);
     this.$('hp-fill').classList.toggle('low', me.hp < me.maxHp * .3);
-    this.$('hp-label').textContent = `${me.hp} / ${me.maxHp}`;
-    this.$('xp-fill').style.width = `${me.xp / levelXp(me.level) * 100}%`;
-    this.$('xp-label').textContent = `${me.xp} / ${levelXp(me.level)} XP`;
-    this.$('gold-label').textContent = `${me.gold} золота`;
-    this.$('world-code').textContent = state.code;
-    this.$('coords').textContent = `${Math.floor(me.x / 32)}, ${Math.floor(me.y / 32)}`;
-    this.$('ping-value').textContent = `${this.net.latency || '—'} мс · Онлайн`;
+    this.text('hp-label', `${me.hp} / ${me.maxHp}`);
+    this.style('xp-fill', 'width', `${me.xp / levelXp(me.level) * 100}%`);
+    this.text('xp-label', `${me.xp} / ${levelXp(me.level)} XP`);
+    this.text('gold-label', `${me.gold} золота`);
+    this.text('world-code', state.code);
+    this.text('coords', `${Math.floor(me.x / 32)}, ${Math.floor(me.y / 32)}`);
+    this.text('ping-value', `${this.net.latency || '—'} мс · Онлайн`);
     const safe = inVillage(me), location = safe ? 'Тихая сосна' : 'Тёмный лес';
-    this.$('location-title').textContent = location;
-    this.$('biome-tag').textContent = safe ? 'БЕЗОПАСНАЯ ТЕРРИТОРИЯ' : 'БУДЬТЕ НАЧЕКУ';
+    this.text('location-title', location);
+    this.text('biome-tag', safe ? 'БЕЗОПАСНАЯ ТЕРРИТОРИЯ' : 'БУДЬТЕ НАЧЕКУ');
     this.$('biome-tag').classList.toggle('danger', !safe);
     this.$('objective-forest').classList.toggle('done', me.explored.includes('forest'));
     this.$('objective-kill').classList.toggle('done', me.kills > 0);
     const ally = state.players.find(p => p.id !== me.id);
-    this.$('party-count').textContent = `${state.players.filter(p => p.online).length}/2`;
-    this.$('companion-content').innerHTML = ally ? `<strong>${escape(ally.name)} <small>УР. ${ally.level}</small></strong><span>${ally.online ? (ally.hp > 0 ? `${ally.hp} / ${ally.maxHp} HP · в вашем мире` : 'Пал · отнесите надгробие к алтарю') : 'Не в сети · прогресс сохранён'}</span>` : '<strong>Место для друга</strong><span>Пригласите по коду мира</span>';
+    this.text('party-count', `${state.players.filter(p => p.online).length}/2`);
+    this.html('companion-content', ally ? `<strong>${escape(ally.name)} <small>УР. ${ally.level}</small></strong><span>${ally.online ? (ally.hp > 0 ? `${ally.hp} / ${ally.maxHp} HP · в вашем мире` : 'Пал · отнесите надгробие к алтарю') : 'Не в сети · прогресс сохранён'}</span>` : '<strong>Место для друга</strong><span>Пригласите по коду мира</span>');
     const cooldown = Math.max(0, PLAYER.dashCooldown - (state.elapsed - me.lastDash));
-    this.$('dash-cooldown').hidden = cooldown <= 0;
-    this.$('dash-cooldown').textContent = (cooldown / 1000).toFixed(1);
-    this.$('death-overlay').hidden = me.hp > 0 || !!state.gameOver;
+    this.prop('dash-cooldown', 'hidden', cooldown <= 0);
+    this.text('dash-cooldown', (cooldown / 1000).toFixed(1));
+    this.prop('death-overlay', 'hidden', me.hp > 0 || !!state.gameOver);
     const grave = state.gravestones?.find(g => g.playerId === me.id), carrier = state.players.find(p => p.id === grave?.carrierId);
-    this.$('revival-status').textContent = carrier ? `${carrier.name} несёт ваше надгробие к алтарю.` : ally?.hp > 0 && !ally.online ? `${ally.name} не в сети. Мир ждёт его возвращения.` : 'Надгробие ждёт напарника на месте вашей гибели.';
+    this.text('revival-status', carrier ? `${carrier.name} несёт ваше надгробие к алтарю.` : ally?.hp > 0 && !ally.online ? `${ally.name} не в сети. Мир ждёт его возвращения.` : 'Надгробие ждёт напарника на месте вашей гибели.');
     const carried = state.gravestones?.find(g => g.carrierId === me.id), carrying = this.$('carrying-grave');
     carrying.hidden = !carried || !!state.gameOver;
     if (carried) carrying.textContent = `Надгробие: ${carried.name} · Отнесите к алтарю в деревне · См. карту M`;
-    if (state.savedAt) this.$('save-status').innerHTML = `${icon('save')} Сохранено в ${new Date(state.savedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
-    this.drawMap(this.$('minimap'), false);
-    if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
+    if (state.savedAt && state.savedAt !== this.lastSavedAt) { this.lastSavedAt = state.savedAt; this.html('save-status', `${icon('save')} Сохранено в ${new Date(state.savedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`); }
+    if (!this.lastMapAt || performance.now() - this.lastMapAt >= 200) {
+      this.lastMapAt = performance.now();
+      if (!this.preferences.compactHud) this.drawMap(this.$('minimap'), false);
+      if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
+    }
     if (!state.gameOver) this.rpg.render(state, me);
     this.survival.render(state, me);
     this.progression.render(state, me);
@@ -247,19 +257,28 @@ export class Interface {
     if (!canvas || !this.state) return;
     const c = canvas.getContext('2d'), width = canvas.width, height = canvas.height;
     const sx = width / WORLD.width, sy = height / WORLD.height;
-    c.fillStyle = '#2d432e'; c.fillRect(0, 0, width, height);
-    c.fillStyle = '#3b5336';
-    for (const t of this.scene.map?.trees || []) c.fillRect(t.x * sx - 1, t.y * sy - 1, full ? 5 : 2, full ? 5 : 2);
-    c.fillStyle = '#7f8053'; c.fillRect(0, 1120 * sy, width, 64 * sy); c.fillRect(1505 * sx, 0, 64 * sx, height);
-    c.fillStyle = '#75815a'; c.beginPath(); c.ellipse(1536 * sx, 1152 * sy, 310 * sx, 270 * sy, 0, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#526d67'; c.beginPath(); c.ellipse(2090 * sx, 690 * sy, 150 * sx, 100 * sy, 0, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#b39a68';
-    for (const b of this.scene.map?.buildings || []) c.fillRect((b.x - 55) * sx, (b.y - 60) * sy, 110 * sx, 65 * sy);
-    c.fillStyle = '#99bfc0'; c.fillRect(1513 * sx, 1130 * sy, 46 * sx, 46 * sy);
-    c.strokeStyle = '#d2e6d1'; c.lineWidth = full ? 3 : 2;
-    const ax = REVIVAL.altar.x * sx, ay = REVIVAL.altar.y * sy, arm = full ? 7 : 4;
-    c.beginPath(); c.moveTo(ax - arm, ay); c.lineTo(ax + arm, ay); c.moveTo(ax, ay - arm); c.lineTo(ax, ay + arm); c.stroke();
-    if (full) { c.fillStyle = '#d2e6d1'; c.font = '11px Georgia'; c.textAlign = 'center'; c.fillText('АЛТАРЬ', ax, ay + 22); }
+    this.mapBackgrounds ||= new Map();
+    const key = `${width}:${height}:${full}`;
+    let background = this.mapBackgrounds.get(key);
+    if (!background) {
+      background = document.createElement('canvas'); background.width = width; background.height = height;
+      const c = background.getContext('2d');
+      c.fillStyle = '#2d432e'; c.fillRect(0, 0, width, height);
+      c.fillStyle = '#3b5336';
+      for (const t of this.scene.map?.trees || []) c.fillRect(t.x * sx - 1, t.y * sy - 1, full ? 5 : 2, full ? 5 : 2);
+      c.fillStyle = '#7f8053'; c.fillRect(0, 1120 * sy, width, 64 * sy); c.fillRect(1505 * sx, 0, 64 * sx, height);
+      c.fillStyle = '#75815a'; c.beginPath(); c.ellipse(1536 * sx, 1152 * sy, 310 * sx, 270 * sy, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#526d67'; c.beginPath(); c.ellipse(2090 * sx, 690 * sy, 150 * sx, 100 * sy, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#b39a68';
+      for (const b of this.scene.map?.buildings || []) c.fillRect((b.x - 55) * sx, (b.y - 60) * sy, 110 * sx, 65 * sy);
+      c.fillStyle = '#99bfc0'; c.fillRect(1513 * sx, 1130 * sy, 46 * sx, 46 * sy);
+      c.strokeStyle = '#d2e6d1'; c.lineWidth = full ? 3 : 2;
+      const ax = REVIVAL.altar.x * sx, ay = REVIVAL.altar.y * sy, arm = full ? 7 : 4;
+      c.beginPath(); c.moveTo(ax - arm, ay); c.lineTo(ax + arm, ay); c.moveTo(ax, ay - arm); c.lineTo(ax, ay + arm); c.stroke();
+      if (full) { c.fillStyle = '#d2e6d1'; c.font = '11px Georgia'; c.textAlign = 'center'; c.fillText('АЛТАРЬ', ax, ay + 22); }
+      this.mapBackgrounds.set(key, background);
+    }
+    c.drawImage(background, 0, 0);
     for (const grave of this.state.gravestones || []) {
       if (grave.carrierId) continue;
       c.fillStyle = '#e2dbc1'; const size = full ? 7 : 4;
@@ -300,17 +319,17 @@ export class Interface {
     this.modalReturnFocus = document.activeElement;
     this.panel = type; this.scene.pausedInput = true;
     this.scene.input?.keyboard?.resetKeys();
-    this.$('modal-backdrop').hidden = false;
+    this.prop('modal-backdrop', 'hidden', false);
     const title = { map: 'Карта окрестностей', hero: 'Ваш герой', settings: 'Небольшая передышка', help: 'Находите свой путь', restore: 'Вернуться к своей истории', forget: 'Удалить путешествие?' }[type];
     const body = {
       map: `<p class="muted">Забытые земли · Деревня и Тёмный лес</p><canvas id="world-map" width="768" height="518"></canvas><div class="map-legend"><span><i class="legend-dot hero-dot"></i>Вы</span><span><i class="legend-dot ally-dot"></i>Напарник</span><span><i class="legend-dot enemy-dot"></i>Противник</span><span>Двигайтесь по тропам. В деревне безопасно.</span></div>`,
       settings: `<p class="muted">Мир продолжает жить, пока вы открываете меню.<br>Для отдыха вернитесь в безопасную деревню.</p><div class="settings-row"><label for="effects-toggle">Эффекты и встряска камеры</label><input id="effects-toggle" type="checkbox" ${this.scene.effectsEnabled ? 'checked' : ''}></div><button id="save-now" class="secondary-button">${icon('save')} Сохранить сейчас</button><button id="backup-key" class="secondary-button">${icon('copy')} Скопировать ключ героя</button><p class="panel-footnote">Ключ возвращает вашего героя на другом компьютере. Храните его у себя и не отправляйте другим игрокам.</p><button id="resume-button" class="primary-button">Продолжить путешествие ${icon('arrow')}</button><button id="leave-world" class="text-button">${icon('door')} Сохранить и выйти в меню</button>`,
-      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>${['q', 'e', 'r'].map(k => this.preferences.label(k)).join(' ')} / ${this.preferences.label('t')}</kbd> Навыки / навык профессии</span><span><kbd>+</kbd> Улучшение над панелью боя · Shift + клик: до 10 рангов</span><span><kbd>B</kbd> Строить забор из ящиков · ЛКМ поставить</span><span><kbd>P</kbd> Профессия с 10 уровня</span><span><kbd>F</kbd> Добыча дерева и руды, забор, надгробие, NPC</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
+      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>${['q', 'e', 'r'].map(k => this.preferences.label(k)).join(' ')} / ${this.preferences.label('t')}</kbd> Навыки / навык профессии</span><span><kbd>+</kbd> Улучшение над панелью боя · Shift + клик: до 10 рангов</span><span><kbd>B</kbd> Строить забор из ящиков · ЛКМ поставить</span><span><kbd>P</kbd> Профессия с 10 уровня</span><span><kbd>F</kbd> Добыча дерева и руды, забор, надгробие, NPC</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>${this.preferences.label('health')}</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
       restore: `<p class="muted">Введите сохранённый ключ героя, чтобы открыть его миры на этом устройстве.</p><form id="restore-form"><label class="field-label" for="restore-input">ЛИЧНЫЙ КЛЮЧ ГЕРОЯ</label><input id="restore-input" required minlength="32" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Вставьте ключ"><p class="panel-footnote">Текущий ключ будет заменён только в этом браузере. Если он нужен, сначала скопируйте его.</p><button type="button" id="copy-current-key" class="secondary-button">${icon('copy')} Скопировать текущий ключ</button><button type="submit" class="primary-button">Восстановить героя ${icon('arrow')}</button></form>`,
       forget: `<p class="muted"><b>${escape(this.forgetWorld?.name || '')} · ${escape(this.forgetWorld?.code || '')}</b></p><p class="panel-footnote">Путешествие исчезнет из вашего списка. Прогресс героев и доступ друга сохранятся. Чтобы вернуться, присоединитесь по коду <b>${escape(this.forgetWorld?.code || '')}</b>.</p><button id="confirm-forget" class="primary-button forget-confirm">${icon('trash')} Удалить из списка</button><button id="cancel-forget" class="secondary-button">Отмена</button>`,
     }[type];
     this.$('modal').classList.toggle('wide', type === 'map');
-    this.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${icon('close')}</button></div>${body}`;
+    this.html('modal', `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${icon('close')}</button></div>${body}`);
     this.$('close-modal').onclick = () => this.closePanel(); this.$('close-modal').focus();
     if (type === 'forget') {
       this.$('cancel-forget').onclick = () => this.closePanel();
@@ -333,7 +352,7 @@ export class Interface {
       this.$('save-now').onclick = async () => { try { await this.net.save(); this.toast('Мир и герои сохранены.'); } catch (e) { this.toast(e.message, 'error'); } };
       this.$('leave-world').onclick = async event => {
         event.currentTarget.disabled = true;
-        try { await this.net.leave(); } catch (e) { this.toast(e.message, 'error'); if (this.$('leave-world')) this.$('leave-world').disabled = false; }
+        try { await this.net.leave(); } catch (e) { this.toast(e.message, 'error'); if (this.$('leave-world')) this.prop('leave-world', 'disabled', false); }
       };
     }
     if (type === 'restore') {
@@ -348,7 +367,7 @@ export class Interface {
   }
   closePanel() {
     if (this.preferencesUi) this.preferencesUi.listening = null;
-    this.panel = null; this.$('modal-backdrop').hidden = true;
+    this.panel = null; this.prop('modal-backdrop', 'hidden', true);
     this.scene.pausedInput = !this.net.active;
     this.modalReturnFocus?.focus?.(); this.modalReturnFocus = null;
   }

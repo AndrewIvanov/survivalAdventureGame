@@ -63,7 +63,7 @@ export class ChatInterface {
       const { message } = await this.ui.net.chat(text);
       if (worldId !== this.ui.state?.id || !this.ui.net.active) return;
       this.receive(message);
-      if (this.ui.preferences.compactHud) this.setOpen(false);
+      if (this.ui.preferences.compactHud || !this.ui.preferences.leftPanelOpen) this.setOpen(false);
       if (input.value.trim() === text) input.value = '';
       if (document.activeElement === input || document.activeElement === this.ui.$('chat-send')) document.activeElement.blur();
     } catch (error) { this.ui.toast(error.message, 'error'); }

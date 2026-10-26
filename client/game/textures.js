@@ -12,6 +12,13 @@ function texture(scene, key, width, height, draw) {
 }
 
 export function createTextures(scene) {
+  texture(scene, 'actor-shadow', 40, 16, c => { c.fillStyle = '#15261c66'; c.beginPath(); c.ellipse(20, 8, 19, 7, 0, 0, Math.PI * 2); c.fill(); });
+  for (const [name, color] of [['self', '#d9c887bf'], ['ally', '#8fb6c0bf']]) texture(scene, `actor-ring-${name}`, 36, 18, c => { c.strokeStyle = color; c.lineWidth = 1; c.beginPath(); c.ellipse(18, 9, 16, 7, 0, 0, Math.PI * 2); c.stroke(); });
+  for (const kind of ['arrow', 'power', 'sniper', 'magic', 'fire']) texture(scene, `shot-${kind}`, 80, 24, (c, r) => {
+    const magic = kind === 'fire' || kind === 'magic', sniper = kind === 'sniper', width = sniper ? 52 : magic ? 14 : 23, height = sniper ? 10 : magic ? 8 : 3;
+    r(40 - width / 2, 12 - height / 2, width, height, magic ? kind === 'fire' ? '#f0a45e' : '#b8a7ed' : '#e3d8a2');
+    c.fillStyle = magic ? '#f3d8ad' : '#e4dec2'; c.beginPath(); c.arc(40 + (sniper ? 24 : magic ? 7 : 11), 12, sniper ? 9 : magic ? 5 : 3, 0, Math.PI * 2); c.fill();
+  });
   for (let variant = 0; variant < 3; variant++) texture(scene, `tree-${variant}`, 88, 122, (c, r, p) => {
     const random = seeded(19 + variant);
     const palettes = [['#182e27', '#244838', '#355b40', '#497148', '#65834e'], ['#1b332b', '#294c37', '#3d6140', '#577644', '#809553'], ['#28382a', '#3b4e30', '#52663a', '#718047', '#9c9b56']];

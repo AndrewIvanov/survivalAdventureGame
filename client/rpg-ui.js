@@ -46,17 +46,16 @@ export class RpgInterface {
     document.querySelectorAll('[data-class]').forEach(button => button.onclick = () => {
       this.classId = button.dataset.class;
       document.querySelectorAll('[data-class]').forEach(b => { b.classList.toggle('active', b === button); b.setAttribute('aria-pressed', String(b === button)); });
-      this.ui.$('class-description').textContent = CLASSES[this.classId].description;
+      this.ui.text('class-description', CLASSES[this.classId].description);
     });
     document.addEventListener('keydown', event => {
       if (/INPUT|TEXTAREA/.test(event.target.tagName) || !this.net.active || this.ui.state?.gameOver || event.repeat) return;
       const code = event.code;
-      const skill = this.ui.preferences.skillFor(code);
-      if (skill && !this.ui.panel && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); this.ui.scene.cast(skill); }
+      const action = this.ui.preferences.actionFor(code);
+      if (action && !this.ui.panel && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); action === 'health' ? this.usePotion() : this.ui.scene.cast(action); }
       if (code === 'KeyF' && !this.ui.panel) { event.preventDefault(); this.interact(); }
       if (code === 'KeyC') { event.preventDefault(); this.ui.panel === 'character' ? this.ui.closePanel() : this.open('character'); }
       if (code === 'KeyJ') { event.preventDefault(); this.ui.panel === 'journal' ? this.ui.closePanel() : this.open('journal'); }
-      if (code === 'Digit1' && !this.ui.panel) this.usePotion();
     });
     this.net.on('effects', events => {
       for (const e of events) if (e.id === this.net.playerId && ['quest-ready', 'quest-complete'].includes(e.type)) this.ui.toast(`${e.type === 'quest-ready' ? 'Вернитесь за наградой' : 'Задание выполнено'}: ${e.name}`);
@@ -106,10 +105,12 @@ export class RpgInterface {
   render(state, me) {
     if (!me.inventory) return;
     if (state.survival?.phase === 'night' && this.ui.panel === 'npc') { this.ui.closePanel(); this.ui.toast('Жители укрылись до рассвета.'); }
-    this.ui.$('hero-portrait').querySelector('.portrait-art').style.backgroundImage = this.portrait(me);
-    this.ui.$('mana-fill').style.width = `${me.mana / me.maxMana * 100}%`;
-    this.ui.$('mana-label').textContent = `${Math.floor(me.mana)} / ${me.maxMana}`;
-    document.querySelector('.hero-title>span').textContent = professionOf(me)?.name || CLASSES[me.classId]?.name || 'Искатель';
+    this.ui.style(this.ui.$('hero-portrait').querySelector('.portrait-art'), 'backgroundImage', this.portrait(me));
+    this.ui.style('mana-fill', 'width', `${me.mana / me.maxMana * 100}%`);
+    this.ui.text('mana-label', `${Math.floor(me.mana)} / ${me.maxMana}`);
+    this.ui.text(document.querySelector('.hero-title>span'), professionOf(me)?.name || CLASSES[me.classId]?.name || 'Искатель');
+    const skillSignature = [me.classId, me.profession, me.professionRank, me.abilityRanks.q, me.abilityRanks.e, me.abilityRanks.r, me.stats.damage, me.stats.maxHp, ...Object.values(this.ui.preferences.bindings)].join(':');
+    const skillsChanged = skillSignature !== this.skillSignature; this.skillSignature = skillSignature;
     for (const key of ['q', 'e', 'r']) {
       const ability = ABILITIES[me.classId][key], button = this.ui.$(`ability-${key}`);
       if (button.dataset.classId !== me.classId) {
@@ -117,21 +118,21 @@ export class RpgInterface {
         button.querySelector('.ability-icon').innerHTML = this.icon(ability.icon);
         button.querySelector('small').textContent = ability.short;
       }
-      button.title = `${this.ui.preferences.label(key)} · ${ability.name} · ${ability.cost} энергии · ${ability.cooldown / 1000} с\n${ability.description}\n${skillSummary(me, key)}`;
+      if (skillsChanged) button.title = `${this.ui.preferences.label(key)} · ${ability.name} · ${ability.cost} энергии · ${ability.cooldown / 1000} с\n${ability.description}\n${skillSummary(me, key)}`;
       const left = Math.max(0, (me.cooldowns[key] || 0) - state.elapsed);
-      button.querySelector('.cooldown').hidden = left <= 0;
-      button.querySelector('.cooldown').textContent = (left / 1000).toFixed(1);
+      this.ui.prop(button.querySelector('.cooldown'), 'hidden', left <= 0);
+      if (left > 0) this.ui.text(button.querySelector('.cooldown'), (left / 1000).toFixed(1));
       button.classList.toggle('no-mana', me.mana < ability.cost);
     }
-    const nearby = this.nearest(me), hint = this.ui.$('interact-prompt');
+    const nearby = this.ui.preferences.notifications && !this.ui.panel ? this.nearest(me) : null, hint = this.ui.$('interact-prompt');
     const hintKey = nearby ? `hint:${nearby.kind}:${nearby.resourceKind || 'action'}` : null;
     if (hintKey !== this.hintKey) { this.hintKey = hintKey; this.hintUntil = hintKey && this.ui.notices.take(hintKey) ? performance.now() + 6000 : 0; }
-    hint.hidden = !nearby || !!this.ui.panel || performance.now() > this.hintUntil;
-    hint.innerHTML = nearby ? `<kbd>F</kbd><span>${this.escape(nearby.label)}</span>${this.icon(nearby.kind === 'npc' ? 'people' : 'arrow')}` : '';
-    this.ui.$('potion-count').textContent = me.inventory.filter(i => i.baseId === 'health').reduce((n, i) => n + i.quantity, 0);
+    this.ui.prop(hint, 'hidden', !nearby || !!this.ui.panel || performance.now() > this.hintUntil);
+    if (!hint.hidden) this.ui.html(hint, `<kbd>F</kbd><span>${this.escape(nearby.label)}</span>${this.icon(nearby.kind === 'npc' ? 'people' : 'arrow')}`);
+    this.ui.text('potion-count', me.inventory.filter(i => i.baseId === 'health').reduce((n, i) => n + i.quantity, 0));
     const active = Object.entries(me.quests).filter(([, q]) => q.status === 'active');
-    this.ui.$('quest-tracker').innerHTML = `<button id="tracker-open">${this.icon('flag')} ЗАДАНИЯ <span>J</span></button>${active.length ? active.slice(0, 3).map(([id, q]) => `<div class="tracked-quest ${q.progress >= QUESTS[id].target ? 'ready' : ''}"><strong>${QUESTS[id].name}</strong><span>${q.progress} / ${QUESTS[id].target}${q.progress >= QUESTS[id].target ? ' · За наградой' : ''}</span></div>`).join('') : '<p>Поговорите со старостой<br>или охотницей у восточной тропы.</p>'}`;
-    this.ui.$('tracker-open').onclick = () => this.open('journal');
+    this.ui.html('quest-tracker', `<button id="tracker-open">${this.icon('flag')} ЗАДАНИЯ <span>J</span></button>${active.length ? active.slice(0, 3).map(([id, q]) => `<div class="tracked-quest ${q.progress >= QUESTS[id].target ? 'ready' : ''}"><strong>${QUESTS[id].name}</strong><span>${q.progress} / ${QUESTS[id].target}${q.progress >= QUESTS[id].target ? ' · За наградой' : ''}</span></div>`).join('') : '<p>Поговорите со старостой<br>или охотницей у восточной тропы.</p>'}`);
+    if (this.ui.$('tracker-open')) this.ui.$('tracker-open').onclick = () => this.open('journal');
     if (this.ui.panel === 'class' && me.classChosen) { this.ui.closePanel(); this.ui.toast(`Ваше призвание: ${CLASSES[me.classId].name}. Способности доступны на ${['q', 'e', 'r'].map(k => this.ui.preferences.label(k)).join(', ')}.`); }
     if (this.handles(this.ui.panel)) this.refreshPanel(me);
     if (!me.classChosen && me.hp > 0 && inVillage(me) && !this.ui.panel && !this.prompted.has(state.id)) {
@@ -142,7 +143,7 @@ export class RpgInterface {
     if (type === 'hero') type = 'inventory';
     this.ui.modalReturnFocus = document.activeElement; this.ui.panel = type;
     this.ui.scene.pausedInput = true; this.ui.scene.buildMode = false; this.ui.scene.input?.keyboard?.resetKeys();
-    this.ui.$('modal-backdrop').hidden = false;
+    this.ui.prop('modal-backdrop', 'hidden', false);
     this.ui.$('modal').classList.toggle('wide', ['inventory', 'character', 'class'].includes(type));
     this.signature = ''; this.refreshPanel(this.me());
     this.ui.$('close-modal')?.focus();
@@ -165,7 +166,7 @@ export class RpgInterface {
       const label = survival.phase === 'night' ? 'Призыв доступен после рассвета' : survival.guardianActive ? 'Призванный босс ещё жив' : !survival.summonAvailable ? 'Сегодня призыв уже использован' : 'Призвать босса';
       content = `<div class="shrine-emblem">${this.icon('tree')}</div><p class="muted">Обелиск позволяет призвать одного босса за игровой день для всего отряда. После рассвета призыв снова доступен. С каждым днём босс становится сильнее.</p><div class="help-tip">Отходите из отмеченных областей и используйте рывок. Босс меняет фазу на 65% и 30% здоровья. Каждый участник получает эпическое оружие.</div>${this.button(label, { type: 'boss:summon' }, 'primary-button', !survival.summonAvailable)}<p class="panel-footnote">Дневной призыв — исключение из ночной охоты. Ночами 3, 6, 9 и далее появляются отдельные боссы волн с разным обликом.</p>`;
     }
-    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · RPG</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${['inventory', 'character', 'journal'].includes(type) ? `<div class="rpg-tabs"><button data-panel="inventory" class="${type === 'inventory' ? 'active' : ''}">Рюкзак · I</button><button data-panel="character" class="${type === 'character' ? 'active' : ''}">Герой · C</button><button data-panel="journal" class="${type === 'journal' ? 'active' : ''}">Задания · J</button></div>` : ''}${content}`;
+    this.ui.html('modal', `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · RPG</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div>${['inventory', 'character', 'journal'].includes(type) ? `<div class="rpg-tabs"><button data-panel="inventory" class="${type === 'inventory' ? 'active' : ''}">Рюкзак · I</button><button data-panel="character" class="${type === 'character' ? 'active' : ''}">Герой · C</button><button data-panel="journal" class="${type === 'journal' ? 'active' : ''}">Задания · J</button></div>` : ''}${content}`);
     this.ui.$('close-modal').onclick = () => this.ui.closePanel();
     this.ui.$('modal').querySelectorAll('[data-panel]').forEach(b => b.onclick = () => this.ui.openPanel(b.dataset.panel));
     this.ui.$('modal').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { this.selectedItem = b.dataset.item; this.refreshPanel(me); });
@@ -197,7 +198,7 @@ export class RpgInterface {
       detail = `<div class="item-showcase" style="--rarity:${RARITIES[selected.rarity].color}">${this.icon(base.icon)}</div><div class="item-rarity" style="color:${RARITIES[selected.rarity].color}">${RARITIES[selected.rarity].name}</div><h3>${this.itemName(selected)}</h3><p class="muted">${base.classId ? `Оружие · ${CLASSES[base.classId].name}` : { ...Object.fromEntries(Object.entries(EQUIPMENT_SLOTS).map(([id, name]) => [id, `Экипировка · ${name}`])), potion: 'Расходуемый предмет', material: 'Материал · крафт и улучшения', tool: 'Инструмент · добыча через F', building: 'Строительство · забор из ящика' }[base.type]}</p><div class="item-bonuses">${base.damage ? `<span>Сила атаки <b>${base.damage}</b></span>` : ''}${base.armor ? `<span>Броня <b>+${base.armor}</b></span>` : ''}${base.speed ? `<span>Скорость <b>+${base.speed}</b></span>` : ''}${base.heal ? 'Восстанавливает 65 здоровья' : ''}${base.mana ? `${base.type === 'potion' ? 'Восстанавливает' : 'Максимум энергии +'} ${base.mana}${base.type === 'potion' ? ' энергии' : ''}` : ''}</div>${base.type === 'potion' ? this.button('Использовать', { type: 'use', itemId: selected.id }, 'primary-button') : Object.hasOwn(EQUIPMENT_SLOTS, base.type) ? this.button(isEquipped ? 'Снять' : 'Надеть', { type: isEquipped ? 'unequip' : 'equip', itemId: selected.id }, 'primary-button', base.classId && base.classId !== me.classId) : ''}${Object.hasOwn(EQUIPMENT_SLOTS, base.type) ? `<div class="item-upgrade"><small>Закалка ${selected.upgrade || 0} / ${MAX_UPGRADE}</small>${this.upgradeButton(me, selected)}<p class="panel-footnote">Для улучшения подойдите к кузнецу днём.</p></div>` : ''}<p class="panel-footnote">${isEquipped ? '◆ Надето на герое' : base.classId && base.classId !== me.classId ? 'Требуется другой класс героя' : 'Предмет сохраняется вместе с героем.'}</p>`;
     }
     if (selected && ITEMS[selected.baseId].type === 'building') detail += '<button data-start-build class="primary-button">Строить забор · B</button>';
-    return `<div class="inventory-heading"><span>${this.icon('coin')} ${me.gold} золота</span><span>${me.inventory.length} / ${INVENTORY_SIZE} ячеек</span></div><div class="inventory-layout"><div><div class="equipment-summary">${Object.keys(EQUIPMENT_SLOTS).map(slot => { const item = me.inventory.find(i => i.id === me.equipment[slot]); return `<button class="equipment-slot" ${item ? `data-item="${item.id}"` : 'disabled'}><small>${EQUIPMENT_SLOTS[slot].toUpperCase()}</small><span>${item ? this.itemName(item) : 'Не надето'}</span></button>`; }).join('')}</div><div class="inventory-grid">${slots}</div><p class="panel-footnote">F — подбирать добычу · 1 — зелье здоровья<br>Предметы в экипировке также занимают ячейку.</p></div><div class="item-detail">${detail}</div></div>`;
+    return `<div class="inventory-heading"><span>${this.icon('coin')} ${me.gold} золота</span><span>${me.inventory.length} / ${INVENTORY_SIZE} ячеек</span></div><div class="inventory-layout"><div><div class="equipment-summary">${Object.keys(EQUIPMENT_SLOTS).map(slot => { const item = me.inventory.find(i => i.id === me.equipment[slot]); return `<button class="equipment-slot" ${item ? `data-item="${item.id}"` : 'disabled'}><small>${EQUIPMENT_SLOTS[slot].toUpperCase()}</small><span>${item ? this.itemName(item) : 'Не надето'}</span></button>`; }).join('')}</div><div class="inventory-grid">${slots}</div><p class="panel-footnote">F — подбирать добычу · ${this.ui.preferences.label('health')} — зелье здоровья<br>Предметы в экипировке также занимают ячейку.</p></div><div class="item-detail">${detail}</div></div>`;
   }
   upgradeButton(me, item) {
     const nearSmith = this.ui.state.survival?.phase !== 'night' && distance(me, NPCS.find(n => n.id === 'smith')) <= 105;

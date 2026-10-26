@@ -33,7 +33,6 @@ export function createMap(seed = WORLD.seed) {
     if (fromVillage < 390 || road || clearing || pond || trees.some(t => Math.hypot(t.x - x, t.y - y) < 50)) continue;
     const tree = { id: `tree-${i}`, x: Math.round(x), y: Math.round(y), variant: Math.floor(random() * 3), scale: .85 + random() * .4 };
     trees.push(tree);
-    obstacles.push({ x: tree.x - 10, y: tree.y - 8, w: 20, h: 18, type: 'tree', resourceId: tree.id });
   }
   obstacles.push({ x: 1950, y: 590, w: 285, h: 198, type: 'water' });
   const rocks = [];

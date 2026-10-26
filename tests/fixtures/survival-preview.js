@@ -38,6 +38,11 @@ input.on('line', line => {
   const heroes = [...world.players.values()].filter(p => p.online && p.hp > 0);
   if (command === 'materials') for (const p of heroes) { for (const id of ['wood', 'ore', 'fenceKit', 'pickaxe']) { const item = makeItem(id); item.quantity = id === 'wood' || id === 'ore' ? 99 : id === 'fenceKit' ? 10 : 1; addItem(p, item); } p.gold = 1000; }
   if (command === 'level') for (const p of heroes) { p.level = 10; p.skillPoints = 150; refreshStats(p, true); }
+  if (command === 'wound') for (const p of heroes) { p.x = 2180; p.y = 1152; p.hp = Math.max(1, p.maxHp - 70); p.lastHurt = world.elapsed; p.invulnerableUntil = world.elapsed + 360000; }
+  if (command === 'tree-cross') for (const p of heroes) {
+    const tree = world.map.trees.find(t => Array.from({ length: 31 }, (_, i) => t.x - 70 + i * 7).every(x => canStand(x, t.y, world.grid)));
+    p.x = tree.x - 65; p.y = tree.y; p.invulnerableUntil = world.elapsed + 360000; console.log(`tree=${tree.id}, trunk=${tree.x}, start=${p.x}, y=${p.y}`);
+  }
   if (command === 'profession' && PROFESSIONS[number]) for (const p of heroes) {
     p.classId = PROFESSIONS[number].classId; p.profession = number; p.professionRank = number === 'squire' ? 76 : 1;
     p.level = 10; p.skillPoints = 150; p.cooldowns = {}; p.x = 1700; p.y = 1152;

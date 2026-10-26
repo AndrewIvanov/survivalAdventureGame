@@ -118,7 +118,7 @@ test('resource depletion and damaged upgraded fences survive a verified save; re
   assert.deepEqual(restored.structures, world.structures); assert.deepEqual(restored.resourceState, world.resourceState); assert.ok(!canStand(fence.x, fence.y, restored.grid));
   const player = restored.players.get(hero.id); player.x = node.x; player.y = node.y;
   restored.elapsed = restored.resourceState[node.id].respawnAt + 1; updateResources(restored); assert.equal(restored.resourceState[node.id].remaining, 0);
-  player.x += 100; restored.elapsed += 1001; updateResources(restored); assert.equal(restored.resourceState[node.id], undefined); assert.ok(!canStand(node.x, node.y, restored.grid));
+  player.x += 100; restored.elapsed += 1001; updateResources(restored); assert.equal(restored.resourceState[node.id], undefined); assert.ok(canStand(node.x, node.y, restored.grid));
 });
 
 test('mana regeneration is one fifth of the old rate and monster HP/damage stay unchanged while movement slows 5%', () => {

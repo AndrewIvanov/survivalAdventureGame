@@ -5,9 +5,10 @@ import { ORE_NODES, FENCES, GATHERING } from '../../shared/crafting.js';
 import { distance } from '../../shared/config.js';
 
 export class ProgressionScene {
-  constructor(scene) { this.scene = scene; this.state = null; this.views = new Map(); this.oreViews = new Map(); this.stumps = new Map(); }
+  constructor(scene) { this.scene = scene; this.state = null; this.views = new Map(); this.oreViews = new Map(); this.stumps = new Map(); this.depleted = new Set(); this.fadedTrees = new Set(); }
   create() {
     const scene = this.scene; createProgressionArt(scene); this.skills = new SkillEffects(scene);
+    this.treeIndex = new Map(scene.map.trees.map(tree => [tree.id, tree]));
     for (const node of ORE_NODES) this.oreViews.set(node.id, scene.add.image(node.x, node.y, 'ore-vein').setOrigin(.5, .85).setDepth(node.y));
     this.orbits = scene.add.graphics().setDepth(14000);
     this.preview = scene.add.rectangle(0, 0, 32, 32, 0xb8d193, .3).setStrokeStyle(2, 0xd9e7b7).setDepth(19000).setVisible(false);
@@ -21,10 +22,16 @@ export class ProgressionScene {
   sync(state) {
     this.state = state;
     const depleted = new Set(state.depletedTrees || []);
-    for (const [id, view] of this.scene.treeViews || []) view.setVisible(!depleted.has(id));
-    for (const id of depleted) if (!this.stumps.has(id)) {
-      const tree = this.scene.map.trees.find(t => t.id === id); if (tree) this.stumps.set(id, this.scene.add.image(tree.x, tree.y, 'stump').setOrigin(.5, .85).setDepth(tree.y - 10));
+    for (const id of this.depleted) if (!depleted.has(id)) this.scene.treeViews.get(id)?.setVisible(true);
+    for (const id of depleted) if (!this.depleted.has(id)) {
+      this.scene.treeViews.get(id)?.setVisible(false);
+      const tree = this.treeIndex.get(id); if (tree) this.stumps.set(id, this.scene.add.image(tree.x, tree.y, 'stump').setOrigin(.5, .85).setDepth(tree.y - 10));
     }
+    this.depleted = depleted;
+    const me = state.players.find(p => p.id === this.scene.network.playerId), faded = new Set();
+    if (me?.hp > 0) for (const node of state.resources || []) if (node.kind === 'tree' && Math.abs(node.x - me.x) < 55 && me.y > node.y - 100 && me.y < node.y + 25) { faded.add(node.id); if (!this.fadedTrees.has(node.id)) this.scene.treeViews.get(node.id)?.setAlpha(.4); }
+    for (const id of this.fadedTrees) if (!faded.has(id)) this.scene.treeViews.get(id)?.setAlpha(1);
+    this.fadedTrees = faded;
     for (const [id, view] of this.stumps) if (!depleted.has(id)) { view.destroy(); this.stumps.delete(id); }
     for (const node of state.resources || []) if (node.kind === 'ore') this.oreViews.get(node.id)?.setAlpha(node.remaining > 0 ? 1 : .2);
     const ids = new Set();
@@ -35,6 +42,8 @@ export class ProgressionScene {
         const label = this.scene.add.text(0, -19, `${fence.level}`, { fontFamily: 'Georgia', fontSize: '10px', color: '#e6dfb8', stroke: '#4c4638', strokeThickness: 2 }).setOrigin(.5);
         view = this.scene.add.container(fence.x, fence.y, [sprite, health, label]); view.sprite = sprite; view.health = health; view.label = label; this.views.set(fence.id, view);
       }
+      if (view.hp === fence.hp && view.level === fence.level) continue;
+      view.hp = fence.hp; view.level = fence.level;
       view.setPosition(fence.x, fence.y).setDepth(fence.y + 16); view.label.setText(String(fence.level));
       view.sprite.setTint(fence.level >= 7 ? 0xc0d5d6 : fence.level >= 4 ? 0xccc6a1 : 0xffffff);
       view.health.clear();
@@ -87,5 +96,5 @@ export class ProgressionScene {
       if (e.type === 'fence-hit') this.scene.floatText(e.x, e.y - 30, `−${e.damage}`, '#dbb48b', 10);
     }
   }
-  reset() { this.state = null; this.orbits?.clear(); this.preview?.setVisible(false); for (const view of this.views.values()) view.destroy(); this.views.clear(); for (const view of this.stumps.values()) view.destroy(); this.stumps.clear(); for (const view of this.oreViews.values()) view.setAlpha(1); for (const view of this.scene.treeViews?.values() || []) view.setVisible(true); }
+  reset() { this.state = null; this.orbits?.clear(); this.preview?.setVisible(false); for (const view of this.views.values()) view.destroy(); this.views.clear(); for (const view of this.stumps.values()) view.destroy(); this.stumps.clear(); this.depleted.clear(); this.fadedTrees.clear(); for (const view of this.oreViews.values()) view.setAlpha(1); for (const view of this.scene.treeViews?.values() || []) view.setVisible(true).setAlpha(1); }
 }

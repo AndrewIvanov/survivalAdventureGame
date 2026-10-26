@@ -11,7 +11,7 @@ import { ProgressionScene } from './progression-scene.js';
 export class WorldScene extends Phaser.Scene {
   constructor(network) {
     super('world'); this.network = network; this.entities = new Map(); this.pausedInput = true;
-    this.lastSent = 0; this.lastPosition = null; this.effectsEnabled = true; this.buildMode = false;
+    this.lastSent = 0; this.lastPosition = null; this.effectsEnabled = true; this.buildMode = false; this.floatPool = []; this.floatActive = new Set();
   }
   create() {
     this.map = createMap();
@@ -61,7 +61,7 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD.width, WORLD.height).setZoom(this.defaultZoom());
     this.cameras.main.startFollow(this.cameraTarget, true, .09, .09);
     this.cameras.main.centerOn(1536, 1140);
-    this.keys = this.input.keyboard.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D', up2: 'UP', down2: 'DOWN', left2: 'LEFT', right2: 'RIGHT', dash: 'SPACE' }, false);
+    this.keys = this.input.keyboard.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D', up2: 'UP', down2: 'DOWN', left2: 'LEFT', right2: 'RIGHT' }, false);
     this.input.mouse.disableContextMenu();
     this.scale.on('resize', () => this.cameras.main.setZoom(this.defaultZoom()));
     this.network.on('entered', result => this.begin(result));
@@ -82,6 +82,7 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.centerOn(me.x, me.y);
   }
   reset() {
+    for (const label of this.floatActive) { this.tweens.killTweensOf(label); label.setVisible(false); this.floatPool.push(label); } this.floatActive.clear();
     for (const view of this.entities.values()) view.container.destroy();
     this.entities.clear(); this.pausedInput = true;
     for (const view of this.rpgViews?.values() || []) view.destroy();
@@ -90,8 +91,8 @@ export class WorldScene extends Phaser.Scene {
     this.cameraTarget.set(1536, 1140);
   }
   makeView(data, player) {
-    const shadow = this.add.ellipse(0, 1, player ? 29 : 37, 11, 0x15261c, .4);
-    const ring = this.add.ellipse(0, 1, 33, 15).setStrokeStyle(1, data.id === this.network.playerId ? 0xd9c887 : 0x8fb6c0, .75).setVisible(player || data.kind === 'skeleton');
+    const shadow = this.add.image(0, 1, 'actor-shadow').setDisplaySize(player ? 29 : 37, 11);
+    const ring = this.add.image(0, 1, data.id === this.network.playerId ? 'actor-ring-self' : 'actor-ring-ally').setVisible(player || data.kind === 'skeleton');
     const axe = player && data.inventory?.find(i => i.id === data.equipment?.weapon)?.baseId === 'axe';
     const sprite = this.add.sprite(0, 0, player ? `class-${axe ? 'axe' : data.classId || 'warrior'}-${data.appearance}-0` : data.kind === 'guardian' ? `guardian-${data.variant || 'forest'}` : data.kind).setOrigin(.5, .92);
     const label = this.add.text(0, player ? -55 : data.kind === 'guardian' ? -158 : -48, player ? data.name : data.kind === 'guardian' ? data.name || MONSTERS.guardian.name : data.elite ? '★' : '', { fontSize: '10px', fontFamily: 'system-ui', color: data.id === this.network.playerId ? '#f3e7bd' : '#d4cca3', stroke: '#1a3027', strokeThickness: 3 }).setOrigin(.5);
@@ -116,11 +117,13 @@ export class WorldScene extends Phaser.Scene {
       if (data.frozenUntil > state.elapsed) view.sprite.setTint(0xa3d5e5);
       else if (data.burning) view.sprite.setTint(0xe9b182);
       else if (data.elite) view.sprite.setTint(0xc7b1dd); else view.sprite.clearTint();
-      view.health.clear();
-      if (data.hp < data.maxHp && data.hp > 0) {
+      if (view.healthHp !== data.hp || view.healthMax !== data.maxHp) {
+        view.healthHp = data.hp; view.healthMax = data.maxHp; view.health.clear();
+        if (data.hp < data.maxHp && data.hp > 0) {
         const y = player ? -46 : data.kind === 'guardian' ? -146 : -39, width = data.kind === 'guardian' ? 84 : 36;
         view.health.fillStyle(0x17251e, .9).fillRect(-width / 2, y, width, 5);
         view.health.fillStyle(player ? 0x87ab6c : 0xbb745d).fillRect(-width / 2 + 1, y + 1, (width - 2) * data.hp / data.maxHp, 3);
+        }
       }
     }
     for (const [id, view] of this.entities) if (!visible.has(id)) {
@@ -142,9 +145,7 @@ export class WorldScene extends Phaser.Scene {
           const glow = this.add.circle(0, 0, 12, color, .13), gem = this.add.rectangle(0, 0, 9, 9, color, .9).setRotation(Math.PI / 4);
           view = this.add.container(object.x, object.y, [glow, gem]);
         } else {
-          const magic = ['magic', 'fire'].includes(object.projectileKind);
-          const sniper = object.projectileKind === 'sniper';
-          view = this.add.container(object.x, object.y, [this.add.rectangle(0, 0, sniper ? 52 : magic ? 14 : 23, sniper ? 10 : magic ? 8 : 3, magic ? object.projectileKind === 'fire' ? 0xf0a45e : 0xb8a7ed : 0xe3d8a2), this.add.circle(sniper ? 24 : magic ? 7 : 11, 0, sniper ? 9 : magic ? 5 : 3, magic ? 0xf3d8ad : 0xe4dec2)]);
+          view = this.add.image(object.x, object.y, `shot-${object.projectileKind}`);
         }
         this.rpgViews.set(object.id, view);
       }
@@ -166,6 +167,13 @@ export class WorldScene extends Phaser.Scene {
     const target = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     this.network.ability(key, target.x, target.y).catch(e => this.network.emit('notice', { message: e.message, type: 'error' }));
   }
+  dash() {
+    if (this.pausedInput || !this.network.active || document.activeElement?.matches('input, textarea, [contenteditable="true"]')) return;
+    const x = Number(this.keys.right.isDown || this.keys.right2.isDown) - Number(this.keys.left.isDown || this.keys.left2.isDown);
+    const y = Number(this.keys.down.isDown || this.keys.down2.isDown) - Number(this.keys.up.isDown || this.keys.up2.isDown);
+    const point = this.cameras.main.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y), me = this.entities.get(this.network.playerId);
+    this.network.input({ x, y, angle: me ? Math.atan2(point.y - me.container.y, point.x - me.container.x) : 0, attack: false }); this.network.dash();
+  }
   update(time, delta) {
     if (!this.cameraTarget) return;
     this.survivalScene?.update(time, delta);
@@ -185,7 +193,8 @@ export class WorldScene extends Phaser.Scene {
       sprite.setFlipX(Math.cos(data.angle) < -.15);
       if (view.player) {
         const axe = data.inventory?.find(i => i.id === data.equipment?.weapon)?.baseId === 'axe';
-        sprite.setTexture(`class-${axe ? 'axe' : data.classId || 'warrior'}-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`);
+        const texture = `class-${axe ? 'axe' : data.classId || 'warrior'}-${data.appearance}-${moved ? 1 + Math.floor(time / 130) % 2 : 0}`;
+        if (sprite.texture.key !== texture) sprite.setTexture(texture);
         sprite.y = moved && data.hp > 0 ? Math.sin(time / 75) * 1.3 : Math.sin(time / 380) * .5;
       } else sprite.y = moved ? Math.sin(time / 90) * 1.5 : 0;
       sprite.setRotation(data.hp <= 0 ? -1.2 : 0);
@@ -204,12 +213,13 @@ export class WorldScene extends Phaser.Scene {
     const angle = me ? Math.atan2(worldPointer.y - me.container.y, worldPointer.x - me.container.x) : 0;
     const overUI = !!document.elementFromPoint(pointer.x, pointer.y)?.closest('button, input, .panel');
     this.network.input({ x, y, angle, attack: !this.buildMode && !overUI && pointer.leftButtonDown() });
-    if (Phaser.Input.Keyboard.JustDown(this.keys.dash)) this.network.dash();
   }
   floatText(x, y, text, color, size = 15) {
     if (this.showNotifications === false) return;
-    const label = this.add.text(x, y, text, { fontFamily: 'Georgia, serif', fontSize: `${size}px`, fontStyle: 'bold', color, stroke: '#1b2b22', strokeThickness: 3 }).setOrigin(.5).setDepth(20000);
-    this.tweens.add({ targets: label, y: y - 37, alpha: 0, duration: 1000, ease: 'Cubic.easeOut', onComplete: () => label.destroy() });
+    if (this.floatActive.size >= 48) return;
+    const label = this.floatPool.pop() || this.add.text(0, 0, '', { fontFamily: 'Georgia, serif', fontStyle: 'bold', stroke: '#1b2b22', strokeThickness: 3 }).setOrigin(.5).setDepth(20000);
+    label.setText(text).setFontSize(size).setColor(color).setPosition(x, y).setAlpha(1).setVisible(true); this.floatActive.add(label);
+    this.tweens.add({ targets: label, y: y - 37, alpha: 0, duration: 1000, ease: 'Cubic.easeOut', onComplete: () => { this.floatActive.delete(label); label.setVisible(false); this.floatPool.push(label); } });
   }
   effects(events) {
     if (!this.sys.isActive()) return;

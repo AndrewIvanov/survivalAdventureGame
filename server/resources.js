@@ -1,7 +1,6 @@
 import { distance } from '../shared/config.js';
 import { GATHERING, ORE_NODES } from '../shared/crafting.js';
 import { addItem, makeItem } from './inventory.js';
-import { rebuildEnvironment } from './environment.js';
 
 export function initializeResources(world) {
   world.resourceNodes = [...world.map.trees.map(t => ({ id: t.id, kind: 'tree', name: 'Дерево', x: t.x, y: t.y })), ...ORE_NODES];
@@ -19,7 +18,6 @@ export function harvest(world, player, id) {
   addItem(player, item);
   state.remaining--; state.respawnAt = state.remaining ? 0 : world.elapsed + GATHERING.respawnMs;
   world.resourceState[id] = state; player.nextHarvestAt = world.elapsed + GATHERING.cooldownMs; player.stealthUntil = 0; player.angle = Math.atan2(node.y - player.y, node.x - player.x);
-  if (!state.remaining && node.kind === 'tree') rebuildEnvironment(world);
   world.events.push({ type: 'harvest', id: player.id, x: node.x, y: node.y, resource: item.baseId, amount: item.quantity });
   world.criticalSave = true;
 }
@@ -28,7 +26,7 @@ export function updateResources(world) {
     if (state.remaining || state.respawnAt > world.elapsed) continue;
     const node = world.resourceNodes.find(n => n.id === id); if (!node) { delete world.resourceState[id]; continue; }
     if ([...world.players.values(), ...world.monsters.filter(m => m.hp > 0)].some(p => distance(p, node) < 36)) { state.respawnAt = world.elapsed + 1000; continue; }
-    delete world.resourceState[id]; if (node.kind === 'tree') rebuildEnvironment(world);
+    delete world.resourceState[id];
     world.criticalSave = true;
   }
 }

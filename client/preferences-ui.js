@@ -6,6 +6,9 @@ export class PreferencesInterface {
     actions.append(document.querySelector('.version'), button); document.querySelector('.menu-header').append(actions); button.onclick = () => this.open();
     const toggle = document.createElement('button'); toggle.id = 'hud-toggle'; toggle.className = 'icon-button'; toggle.innerHTML = icon('eye'); toggle.onclick = () => ui.preferences.set('compactHud', !ui.preferences.compactHud);
     ui.$('settings-button').before(toggle);
+    const left = document.createElement('button'); left.id = 'left-panel-toggle'; left.className = 'left-panel-toggle panel'; ui.$('hud').append(left);
+    left.onclick = () => { const open = !ui.preferences.leftPanelOpen || ui.preferences.compactHud; if (open) ui.preferences.compactHud = false; ui.preferences.set('leftPanelOpen', open); };
+    const potionKey = document.createElement('kbd'); potionKey.id = 'potion-key'; ui.$('quick-potion').append(potionKey);
     ui.preferences.listeners.add(() => this.apply()); this.apply();
     for (const event of ['entered', 'left', 'replaced']) ui.net.on(event, () => this.apply());
     document.addEventListener('keydown', event => {
@@ -27,11 +30,14 @@ export class PreferencesInterface {
   }
   apply() {
     const ui = this.ui, p = ui.preferences;
-    document.documentElement.classList.toggle('notifications-muted', !p.notifications && !!ui.net.active); ui.$('hud').classList.toggle('compact-hud', p.compactHud);
+    document.documentElement.classList.toggle('notifications-muted', !p.notifications && !!ui.net.active); ui.$('hud').classList.toggle('compact-hud', p.compactHud); ui.$('hud').classList.toggle('left-panels-closed', !p.leftPanelOpen);
+    const leftVisible = p.leftPanelOpen && !p.compactHud;
+    ui.$('left-panel-toggle').textContent = leftVisible ? 'Скрыть панель ‹' : 'Показать панель ›'; ui.$('left-panel-toggle').setAttribute('aria-expanded', String(leftVisible));
+    ui.$('potion-key').textContent = p.label('health'); ui.$('quick-potion').title = `Зелье здоровья · ${p.label('health')}`; ui.$('quick-potion').setAttribute('aria-label', `Использовать зелье здоровья — ${p.label('health')}`);
     ui.scene.showNotifications = p.notifications;
     ui.$('hud-toggle').title = p.compactHud ? 'Показать боковые панели' : 'Скрыть боковые панели'; ui.$('hud-toggle').setAttribute('aria-label', ui.$('hud-toggle').title); ui.$('hud-toggle').setAttribute('aria-pressed', String(p.compactHud));
     if (!p.notifications) { ui.$('toast-stack').replaceChildren(); ui.$('discovery').hidden = true; if (ui.$('survival-banner')) ui.$('survival-banner').hidden = true; }
-    if (p.compactHud && ui.$('chat-panel').contains(document.activeElement)) ui.chat.setOpen(false);
+    if ((p.compactHud || !p.leftPanelOpen) && ui.$('chat-panel').contains(document.activeElement)) ui.chat.setOpen(false);
     for (const key of ['q', 'e', 'r', 't']) {
       const label = p.label(key), slot = ui.$(`ability-${key}`), plus = ui.$(`quick-upgrade-${key}`);
       if (slot) { slot.querySelector('.action-key').textContent = label; slot.setAttribute('aria-label', `Способность ${label}`); }
@@ -43,7 +49,7 @@ export class PreferencesInterface {
   }
   render() {
     const ui = this.ui; ui.$('modal').classList.remove('wide');
-    ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">Управление и экран</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><p class="muted">Нажмите на клавишу и задайте новую. Если она уже назначена другому умению, клавиши поменяются местами.</p><div class="binding-list">${['q', 'e', 'r', 't'].map((key, i) => `<div><span>${key === 't' ? 'Умение профессии' : `Умение ${i + 1}`}<small>${key === 't' ? 'Открывается после выбора профессии' : `Слот ${key.toUpperCase()}`}</small></span><button data-bind="${key}" class="secondary-button ${this.listening === key ? 'listening' : ''}" aria-label="Клавиша умения ${key.toUpperCase()}: ${ui.preferences.label(key)}. Изменить">${this.listening === key ? 'Нажмите клавишу…' : ui.preferences.label(key)}</button></div>`).join('')}</div><p id="binding-status" class="binding-status" role="status">Буквы и цифры · Esc отменяет ввод. Клавиши движения и меню сохраняются. Работает и с русской раскладкой.</p><button id="reset-bindings" class="text-button">Вернуть Q / E / R / T</button>${this.optionsHtml()}<p class="panel-footnote">Настройки сохраняются в этом браузере для всех героев.</p>`;
+    ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">Управление и экран</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><p class="muted">Нажмите на клавишу и задайте новую. Если она уже назначена другому умению, клавиши поменяются местами.</p><div class="binding-list">${['q', 'e', 'r', 't', 'health'].map((key, i) => `<div><span>${key === 'health' ? 'Зелье здоровья' : key === 't' ? 'Умение профессии' : `Умение ${i + 1}`}<small>${key === 'health' ? 'Использовать зелье из рюкзака' : key === 't' ? 'Открывается после выбора профессии' : `Слот ${key.toUpperCase()}`}</small></span><button data-bind="${key}" class="secondary-button ${this.listening === key ? 'listening' : ''}" aria-label="${key === 'health' ? 'Клавиша зелья здоровья' : `Клавиша умения ${key.toUpperCase()}`}: ${ui.preferences.label(key)}. Изменить">${this.listening === key ? 'Нажмите клавишу…' : ui.preferences.label(key)}</button></div>`).join('')}</div><p id="binding-status" class="binding-status" role="status">Буквы и цифры · Esc отменяет ввод. Клавиши движения и меню сохраняются. Работает и с русской раскладкой.</p><button id="reset-bindings" class="text-button">Вернуть Q / E / R / T и зелье на 1</button>${this.optionsHtml()}<p class="panel-footnote">Настройки сохраняются в этом браузере для всех героев.</p>`;
     ui.$('close-modal').onclick = () => { this.listening = null; ui.closePanel(); };
     for (const b of ui.$('modal').querySelectorAll('[data-bind]')) b.onclick = () => { this.listening = b.dataset.bind; this.render(); };
     ui.$('reset-bindings').onclick = () => { this.listening = null; ui.preferences.resetBindings(); this.render(); }; this.bindOptions();
