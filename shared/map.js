@@ -12,7 +12,7 @@ export function seeded(seed) {
 export function createMap(seed = WORLD.seed) {
   const random = seeded(seed);
   const buildings = [
-    { id: 'tavern', name: 'Таверна «Тихая сосна»', x: 1290, y: 1004, w: 144, h: 110, style: 'tavern' },
+    { id: 'altar', name: 'Алтарь', x: 1290, y: 1004, w: 144, h: 110, style: 'altar' },
     { id: 'hall', name: 'Дом старосты', x: 1760, y: 1000, w: 128, h: 112, style: 'hall' },
     { id: 'forge', name: 'Кузница', x: 1262, y: 1290, w: 118, h: 100, style: 'forge' },
     { id: 'shop', name: 'Торговая лавка', x: 1778, y: 1280, w: 116, h: 100, style: 'shop' },

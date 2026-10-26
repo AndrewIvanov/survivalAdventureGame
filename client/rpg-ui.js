@@ -1,6 +1,7 @@
 import { CLASSES, ABILITIES, ATTRIBUTES, ITEMS, RARITIES, QUESTS, NPCS, INVENTORY_SIZE, itemStats, effectiveStats, EQUIPMENT_SLOTS, MAX_UPGRADE, upgradePrice, shopStock } from '../shared/rpg.js';
 import { distance, levelXp, inVillage } from '../shared/config.js';
 import { SURVIVAL } from '../shared/survival.js';
+import { REVIVAL } from '../shared/revival.js';
 
 export class RpgInterface {
   constructor(ui, { icon, escape }) {
@@ -75,20 +76,22 @@ export class RpgInterface {
   nearest(me) {
     if (!me || me.hp <= 0) return null;
     const choices = [
+      ...(this.ui.state.gravestones || []).filter(g => !g.carrierId).map(g => ({ ...g, kind: 'grave', label: `Забрать надгробие: ${g.name}`, range: REVIVAL.pickupRange })),
       ...(this.ui.state.survival?.phase === 'night' ? [] : NPCS).map(n => ({ ...n, kind: 'npc', label: n.name, range: 100 })),
       ...(this.ui.state.loot || []).map(l => ({ ...l, kind: 'loot', label: ITEMS[l.item.baseId].name, range: 80 })),
       ...(this.ui.state.chests || []).filter(c => !c.claimedBy.includes(me.id)).map(c => ({ ...c, kind: 'chest', label: c.supply ? 'Ящик припасов' : 'Лесной тайник', range: 80 })),
       { ...SURVIVAL.shrine, kind: 'shrine', label: SURVIVAL.shrine.name, range: 95 },
     ];
-    return choices.filter(o => distance(o, me) < o.range).sort((a, b) => distance(a, me) - distance(b, me))[0];
+    return choices.filter(o => distance(o, me) < o.range).sort((a, b) => Number(b.kind === 'grave') - Number(a.kind === 'grave') || distance(a, me) - distance(b, me))[0];
   }
   interact() {
     const object = this.nearest(this.me());
-    if (!object) return this.ui.toast('Подойдите к жителю, добыче или сундуку и нажмите F.');
+    if (!object) return this.ui.toast('Подойдите к надгробию, жителю, добыче или сундуку и нажмите F.');
     if (object.kind === 'npc') { this.npcId = object.id; this.open('npc'); }
     if (object.kind === 'loot') this.perform({ type: 'pickup', lootId: object.id });
     if (object.kind === 'chest') this.perform({ type: 'chest', chestId: object.id });
     if (object.kind === 'shrine') this.open('shrine');
+    if (object.kind === 'grave') this.perform({ type: 'grave:carry', graveId: object.id });
   }
   render(state, me) {
     if (!me.inventory) return;

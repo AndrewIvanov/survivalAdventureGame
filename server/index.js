@@ -9,6 +9,8 @@ import { GameWorld } from './world.js';
 import { TICK_RATE, SNAPSHOT_RATE } from '../shared/config.js';
 import { castAbility } from './abilities.js';
 import { rpgAction } from './rpg.js';
+import { sendChat } from './chat.js';
+import { GAME_VERSION } from '../shared/version.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -18,14 +20,14 @@ export async function createGameServer({ database = path.join(root, 'data/villag
   const io = new Server(http, { maxHttpBufferSize: 8192, pingTimeout: 15000 });
   const worlds = new Map(), sessions = new Map();
   let vite, closing = false, closePromise, commands = Promise.resolve();
-  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: '0.3.3', storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
+  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: GAME_VERSION, storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
   if (dev) {
     const { createServer: createViteServer } = await import('vite');
     vite = await createViteServer({ root, server: { middlewareMode: true, hmr: { server: http } }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(root, 'dist')));
-    app.get('*', (_req, res) => res.sendFile(path.join(root, 'dist/index.html')));
+    app.use(express.static(path.join(root, 'dist'), { setHeaders: (res, filename) => { if (filename.endsWith('.html')) res.setHeader('Cache-Control', 'no-store'); } }));
+    app.get('*', (_req, res) => res.sendFile(path.join(root, 'dist/index.html'), { headers: { 'Cache-Control': 'no-store' } }));
   }
 
   const saves = new SaveQueue(store, (world, error) => {
@@ -73,6 +75,23 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       try { acknowledge(ack, { ok: true, worlds: await store.list(socket.data.playerId) }); }
       catch { acknowledge(ack, { ok: false, error: 'Не удалось загрузить путешествия. Повторите позже.' }); }
     });
+    command('world:forget', async (data, ack) => {
+      const code = typeof data?.code === 'string' ? data.code.trim().toUpperCase() : '';
+      if (!/^[A-Z2-9]{6}$/.test(code)) throw new Error('Неверный код путешествия.');
+      let world = [...worlds.values()].find(w => w.code === code);
+      if (!world) {
+        const saved = await store.load(code);
+        if (!saved) throw new Error('Путешествие не найдено.');
+        world = new GameWorld(saved);
+      }
+      const player = world.players.get(socket.data.playerId);
+      if (!player) throw new Error('Это путешествие не принадлежит вашему герою.');
+      if (socket.data.worldId === world.id) throw new Error('Сначала выйдите в главное меню.');
+      player.hiddenJourney = true;
+      worlds.set(world.id, world);
+      if (!await save(world)) throw new Error('Не удалось сохранить удаление. Повторите позже.');
+      acknowledge(ack, { ok: true });
+    });
     command('world:enter', async (data, ack) => {
       if (!data || !['create', 'join'].includes(data.mode)) throw new Error('Неверный запрос.');
       const name = typeof data.name === 'string' ? data.name.trim().slice(0, 18) : '';
@@ -116,7 +135,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       }
       if (!socket.connected) { await exit(socket); return; }
       await socket.join(world.id);
-      acknowledge(ack, { ok: true, playerId: player.id, seed: world.seed, state: world.snapshot(player.id) });
+      acknowledge(ack, { ok: true, playerId: player.id, seed: world.seed, state: world.snapshot(player.id), chat: world.chatMessages });
       socket.to(world.id).emit('notice', { message: `${player.name} присоединился к приключению.` });
     });
     socket.on('input', data => {
@@ -126,6 +145,13 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       worlds.get(socket.data.worldId)?.input(socket.data.playerId, data, now);
     });
     socket.on('dash', () => worlds.get(socket.data.worldId)?.dash(socket.data.playerId));
+    command('chat:send', (data, ack) => {
+      const world = worlds.get(socket.data.worldId);
+      if (!world || sessions.get(`${world.id}:${socket.data.playerId}`) !== socket.id) throw new Error('Сначала войдите в мир.');
+      const message = sendChat(world, world.players.get(socket.data.playerId), data);
+      io.to(world.id).emit('chat:message', message);
+      acknowledge(ack, { ok: true, message });
+    });
     for (const [event, handler] of [['rpg:action', rpgAction], ['ability', castAbility]]) command(event, async (data, ack) => {
       const world = worlds.get(socket.data.worldId);
       if (!world) throw new Error('Сначала войдите в мир.');

@@ -23,7 +23,7 @@ export class WorldScene extends Phaser.Scene {
     for (const rock of this.map.rocks) this.add.image(rock.x, rock.y, `rock-${rock.variant}`).setOrigin(.5, .8).setDepth(rock.y);
     for (const b of this.map.buildings) {
       const sprite = this.add.image(b.x, b.y, `building-${b.style}`).setOrigin(.5, .84).setDepth(b.y + 20);
-      if (b.style === 'tavern') sprite.setScale(1.15);
+      if (b.style === 'altar') sprite.setScale(1.15);
       this.add.text(b.x, b.y + 37, b.name, { fontFamily: 'Georgia, serif', fontSize: '11px', color: '#eee7c6', stroke: '#293d2e', strokeThickness: 3 }).setOrigin(.5).setAlpha(.8).setDepth(b.y + 22);
     }
     this.add.image(1536, 1152, 'fountain').setOrigin(.5, .72).setDepth(1175);
@@ -105,6 +105,7 @@ export class WorldScene extends Phaser.Scene {
       const player = !data.kind;
       if (!view) { view = this.makeView(data, player); this.entities.set(data.id, view); }
       view.data = data;
+      view.container.setVisible(!player || data.hp > 0);
       view.container.setAlpha(data.hp <= 0 ? .35 : 1);
       view.health.clear();
       if (data.hp < data.maxHp && data.hp > 0) {
@@ -149,7 +150,7 @@ export class WorldScene extends Phaser.Scene {
     }
   }
   cast(key) {
-    if (this.pausedInput || !this.network.active) return;
+    if (this.pausedInput || !this.network.active || document.activeElement?.matches('input, textarea, [contenteditable="true"]')) return;
     const pointer = this.input.activePointer;
     const target = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     this.network.ability(key, target.x, target.y).catch(e => this.network.emit('notice', { message: e.message, type: 'error' }));
@@ -176,10 +177,11 @@ export class WorldScene extends Phaser.Scene {
       } else sprite.y = moved ? Math.sin(time / 90) * 1.5 : 0;
       sprite.setRotation(data.hp <= 0 ? -1.2 : 0);
     }
-    if (me) this.cameraTarget.set(me.container.x, me.container.y - 25);
+    const followed = me?.data.hp <= 0 ? [...this.entities.values()].find(v => v.player && v.data.hp > 0) || me : me;
+    if (followed) this.cameraTarget.set(followed.container.x, followed.container.y - 25);
     if (time - this.lastSent < 33 || !this.network.active) return;
     this.lastSent = time;
-    if (this.pausedInput || document.hidden || !document.hasFocus()) {
+    if (this.pausedInput || document.hidden || !document.hasFocus() || document.activeElement?.matches('input, textarea, [contenteditable="true"]')) {
       this.network.input({ x: 0, y: 0, angle: me?.data.angle || 0, attack: false }); return;
     }
     const pointer = this.input.activePointer;

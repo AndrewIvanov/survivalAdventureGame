@@ -7,7 +7,7 @@ import { grantExperience } from './progression.js';
 import { progressQuests } from './quests.js';
 
 export function initializeSurvival(saved) {
-  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 3 };
+  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 4 };
   if (saved && (saved.rulesVersion || 1) < 2) {
     const oldDay = Math.floor(saved.clockMs / 600000), offset = saved.clockMs % 600000;
     state.clockMs = oldDay * CYCLE_MS + (offset < 420000 ? offset / 420000 * SURVIVAL.dayMs : SURVIVAL.dayMs + (offset - 420000) / 180000 * SURVIVAL.nightMs);
@@ -21,6 +21,10 @@ export function initializeSurvival(saved) {
     state.wave.total = Math.max(0, state.wave.total - 10);
     state.wave.spawned = Math.min(state.wave.spawned, state.wave.total);
   }
+  if (saved && (saved.rulesVersion || 1) < 4 && state.wave?.status === 'active') {
+    state.wave.total = waveSize(state.wave.night);
+    state.wave.spawned = Math.min(state.wave.spawned, state.wave.total);
+  }
   return state;
 }
 
@@ -28,8 +32,7 @@ export function beginNight(world, night) {
   const state = world.survival;
   if (state.lastNight >= night) return;
   state.lastNight = night; world.daySkipVotes.clear();
-  const party = Math.max(1, [...world.players.values()].filter(p => p.online).length);
-  state.wave = { id: randomUUID(), night, status: 'active', total: waveSize(night, party), spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: night % 2 === 0, bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
+  state.wave = { id: randomUUID(), night, status: 'active', total: waveSize(night), spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: night % 2 === 0, bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
   world.events.push({ type: 'night-start', night, boss: state.wave.bossRequired }); world.criticalSave = true;
 }
 

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { WORLD } from '../../shared/config.js';
 import { SURVIVAL } from '../../shared/survival.js';
 import { createSurvivalArt } from './survival-art.js';
+import { REVIVAL } from '../../shared/revival.js';
 
 export class SurvivalScene {
   constructor(scene) { this.scene = scene; this.state = null; this.darkness = 0; }
@@ -13,8 +14,28 @@ export class SurvivalScene {
     this.glows = [[1410,1048],[1660,1048],[1420,1198],[1665,1198],[1840,1088],[1220,1108],[1536,1120]].map(([x, y]) => scene.add.image(x, y, 'warm-glow').setScale(1.25).setBlendMode(Phaser.BlendModes.ADD).setDepth(15500).setAlpha(0));
     this.heroGlow = scene.add.image(0, 0, 'warm-glow').setScale(1.1).setBlendMode(Phaser.BlendModes.ADD).setDepth(15500).setAlpha(0).setTint(0xb9c7cf);
     this.danger = scene.add.graphics().setDepth(18000);
+    this.graveViews = new Map();
+    this.altarRing = scene.add.ellipse(REVIVAL.altar.x, REVIVAL.altar.y, 100, 38, 0xb5d3cf, .08).setStrokeStyle(2, 0xbcd8c4, .65).setDepth(REVIVAL.altar.y - 10);
+    scene.add.text(REVIVAL.altar.x, REVIVAL.altar.y + 30, 'МЕСТО ВОСКРЕШЕНИЯ', { fontFamily: 'Georgia', fontSize: '8px', color: '#c7dfce', stroke: '#20362b', strokeThickness: 3 }).setOrigin(.5).setDepth(REVIVAL.altar.y + 2);
   }
-  sync(state) { this.state = state; }
+  sync(state) {
+    this.state = state;
+    const ids = new Set();
+    for (const grave of state.gravestones || []) {
+      ids.add(grave.id);
+      let view = this.graveViews.get(grave.id);
+      if (!view) {
+        const glow = this.scene.add.ellipse(0, 1, 44, 17, 0xc3ded0, .2);
+        const stone = this.scene.add.image(0, 0, 'gravestone').setOrigin(.5, .95);
+        const label = this.scene.add.text(0, -58, grave.name, { fontFamily: 'Georgia', fontSize: '10px', color: '#e0e6cc', stroke: '#20362b', strokeThickness: 3 }).setOrigin(.5);
+        view = this.scene.add.container(grave.x, grave.y, [glow, stone, label]);
+        this.graveViews.set(grave.id, view);
+      }
+      view.grave = grave;
+      view.setPosition(grave.x, grave.y).setScale(grave.carrierId ? .62 : 1).setDepth(grave.y + 25);
+    }
+    for (const [id, view] of this.graveViews) if (!ids.has(id)) { view.destroy(); this.graveViews.delete(id); }
+  }
   update(time, delta) {
     if (!this.state?.survival) return;
     const { survival } = this.state;
@@ -25,6 +46,10 @@ export class SurvivalScene {
     for (const glow of this.glows) glow.setAlpha(this.darkness * .9);
     const hero = this.scene.entities.get(this.scene.network.playerId);
     if (hero) this.heroGlow.setPosition(hero.container.x, hero.container.y - 18).setAlpha(this.darkness * .36);
+    for (const view of this.graveViews.values()) {
+      const carrier = this.scene.entities.get(view.grave.carrierId);
+      if (carrier) view.setPosition(carrier.container.x + 15, carrier.container.y - 44).setDepth(carrier.container.y + 30);
+    }
     this.danger.clear();
     for (const boss of this.state.monsters.filter(m => m.kind === 'guardian' && m.telegraph)) {
       const attack = boss.telegraph, remaining = attack.resolveAt - this.state.elapsed;
@@ -38,7 +63,7 @@ export class SurvivalScene {
       }
     }
   }
-  reset() { this.state = null; this.tint?.setAlpha(0); this.glows?.forEach(g => g.setAlpha(0)); this.heroGlow?.setAlpha(0); this.danger?.clear(); this.darkness = 0; }
+  reset() { this.state = null; this.tint?.setAlpha(0); this.glows?.forEach(g => g.setAlpha(0)); this.heroGlow?.setAlpha(0); this.danger?.clear(); this.darkness = 0; for (const view of this.graveViews?.values() || []) view.destroy(); this.graveViews?.clear(); }
   effects(events) {
     for (const e of events) {
       if (e.type === 'boss-impact') for (const c of e.circles) {
@@ -47,6 +72,7 @@ export class SurvivalScene {
         if (this.scene.effectsEnabled) this.scene.cameras.main.shake(160, .003);
       }
       if (e.type === 'village-hit') this.scene.floatText(e.x, e.y - 25, `−${e.damage}`, '#e1a27c', 12);
+      if (e.type === 'respawn') this.scene.floatText(e.x, e.y - 60, 'ВОСКРЕШЕНИЕ', '#d8ecd0', 17);
     }
   }
 }

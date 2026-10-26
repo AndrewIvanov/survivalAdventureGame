@@ -11,7 +11,7 @@ export function spawnGuardian(world, raid = null) {
   const day = clockInfo(world.survival.clockMs).day, night = raid?.night || day;
   const strength = nightStrength(night);
   const form = BOSS_FORMS[(raid ? Math.floor(raid.night / 2) - 1 : day - 1) % BOSS_FORMS.length];
-  const hp = Math.round((MONSTERS.guardian.hp + (averageLevel - 1) * 225) * (party.length > 1 ? 1.45 : 1) * strength.hp);
+  const hp = Math.round((MONSTERS.guardian.hp + (averageLevel - 1) * 180) * (party.length > 1 ? 1.45 : 1) * strength.hp);
   return spawnMonster(world, 'guardian', raid ? 2000 : 2240, 1152, {
     hp, maxHp: hp, damage: Math.round(MONSTERS.guardian.damage * (1 + (averageLevel - 1) * .05) * strength.damage),
     variant: form.id, name: form.name, obelisk: !raid,

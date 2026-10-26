@@ -13,6 +13,7 @@ import { SURVIVAL, sheltered, clockInfo } from '../shared/survival.js';
 import { initializeSurvival, updateSurvival, resolveWave, survivalSnapshot } from './survival.js';
 import { checkPartyDefeat } from './game-over.js';
 import { updateBosses } from './boss.js';
+import { initializeGravestones, dropCarriedGravestones, updateGravestones } from './revival.js';
 
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const roomCode = () => [...randomBytes(6)].map(n => codeAlphabet[n % codeAlphabet.length]).join('');
@@ -36,8 +37,11 @@ export class GameWorld {
     this.monsterPool = [];
     this.survival = initializeSurvival(saved?.survival);
     this.daySkipVotes = new Set();
+    this.chatMessages = []; this.chatLastSent = new Map();
     this.gameOver = structuredClone(saved?.gameOver || null);
+    this.gravestones = initializeGravestones(this, saved?.gravestones);
     this.village = { level: 1, buildings: this.map.buildings.map(b => b.id), maxHp: SURVIVAL.villageHp, hp: SURVIVAL.villageHp, failures: 0, ...saved?.village };
+    this.village.buildings = this.village.buildings.map(id => id === 'tavern' ? 'altar' : id);
     const migrated = saved?.survival && (saved.survival.rulesVersion || 1) < 2;
     this.monsters = structuredClone(saved?.monsters || []).filter(m => {
       if (m.kind === 'guardian' && !m.raidId) return m.hp > 0;
@@ -52,14 +56,19 @@ export class GameWorld {
     }
     if (saved?.survival && (saved.survival.rulesVersion || 1) < 3) {
       for (const monster of this.monsters) {
-        monster.hp /= 2; monster.maxHp /= 2; monster.damage = (monster.damage || MONSTERS[monster.kind].damage * 2) / 2;
+        monster.hp /= 2; monster.maxHp /= 2; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage * 2 / .8) / 2;
+      }
+    }
+    if (saved?.survival && (saved.survival.rulesVersion || 1) < 4) {
+      for (const monster of this.monsters) {
+        monster.hp *= .8; monster.maxHp *= .8; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage / .8) * .8;
       }
       const wave = this.survival.wave;
       if (wave?.status === 'active') wave.nextSpawnAt = Math.max(this.elapsed, wave.startedAt + wave.spawned / wave.total * SURVIVAL.nightMs);
-      // If the complete old wave was already spawned, retire its ten removed slots.
+      // Retire excess regular enemies without death rewards or removing a boss/helper.
       let excess = Math.max(0, (saved.survival.wave?.spawned || 0) - (this.survival.wave?.total ?? Infinity));
       this.monsters = this.monsters.filter(m => {
-        if (excess && m.raidId === this.survival.wave?.id && m.kind !== 'guardian') { excess--; return false; }
+        if (excess && m.raidId === this.survival.wave?.id && m.kind !== 'guardian' && !m.summonOwner) { excess--; return false; }
         return true;
       });
     }
@@ -75,14 +84,14 @@ export class GameWorld {
       player = {
         id, name, appearance, x: WORLD.spawn.x + this.players.size * 42, y: WORLD.spawn.y,
         hp: PLAYER.maxHp, maxHp: PLAYER.maxHp, level: 1, xp: 0, gold: PLAYER.startingGold, kills: 0,
-        explored: ['village'], angle: -Math.PI / 2, respawnAt: 0, invulnerableUntil: 0,
+        explored: ['village'], angle: -Math.PI / 2, invulnerableUntil: 0,
         lastAttack: -1000, lastDash: -3000, lastHurt: -10000,
       };
       initializeRpg(player, classId);
       this.players.set(id, player);
     }
     this.daySkipVotes.clear();
-    player.online = true; player.input = {}; player.inputAt = 0;
+    player.online = true; player.hiddenJourney = false; player.input = {}; player.inputAt = 0;
     if (this.survival.wave?.status === 'active' && !this.survival.wave.participants.includes(id)) this.survival.wave.participants.push(id);
     if (!canStand(player.x, player.y, this.grid)) { player.x = WORLD.spawn.x; player.y = WORLD.spawn.y; }
     this.criticalSave = true;
@@ -91,14 +100,14 @@ export class GameWorld {
 
   leave(id, { checkDefeat = true } = {}) {
     const p = this.players.get(id);
-    if (p) { p.online = false; p.input = {}; this.daySkipVotes.clear(); if (checkDefeat) checkPartyDefeat(this); }
+    if (p) { dropCarriedGravestones(this, p); p.online = false; p.input = {}; this.daySkipVotes.clear(); if (checkDefeat) checkPartyDefeat(this); }
   }
 
   move(entity, dx, dy, radius = PLAYER.radius) { moveEntity(entity, dx, dy, this.grid, radius); }
 
   input(id, data, now = Date.now()) {
     const p = this.players.get(id);
-    if (this.gameOver || !p || !data || !Number.isFinite(data.x) || !Number.isFinite(data.y) || !Number.isFinite(data.angle)) return;
+    if (this.gameOver || !p?.online || p.hp <= 0 || !data || !Number.isFinite(data.x) || !Number.isFinite(data.y) || !Number.isFinite(data.angle)) return;
     let x = clamp(data.x, -1, 1), y = clamp(data.y, -1, 1);
     const length = Math.hypot(x, y);
     if (length > 1) { x /= length; y /= length; }
@@ -119,21 +128,12 @@ export class GameWorld {
   }
 
   tick(dt, now = Date.now()) {
-    if (this.gameOver || checkPartyDefeat(this) || ![...this.players.values()].some(p => p.online)) return;
+    if (this.gameOver || checkPartyDefeat(this) || ![...this.players.values()].some(p => p.online && p.hp > 0)) return;
     this.elapsed += dt * 1000;
     updateSurvival(this, dt);
     for (const p of this.players.values()) {
       if (!p.online) continue;
-      if (p.hp <= 0) {
-        if (this.elapsed >= p.respawnAt) {
-          p.x = WORLD.spawn.x; p.y = WORLD.spawn.y; p.hp = p.maxHp;
-          p.mana = p.maxMana;
-          p.invulnerableUntil = this.elapsed + 3000;
-          this.events.push({ type: 'respawn', id: p.id });
-          this.criticalSave = true;
-        }
-        continue;
-      }
+      if (p.hp <= 0) continue;
       const input = now - p.inputAt < 300 ? p.input : {};
       const stats = effectiveStats(p);
       let dx = (input.x || 0) * stats.speed * dt, dy = (input.y || 0) * stats.speed * dt;
@@ -150,6 +150,7 @@ export class GameWorld {
         this.criticalSave = true;
       }
     }
+    updateGravestones(this);
     updateProjectiles(this, dt); updateZones(this);
     updateBosses(this, dt);
     updateMonsters(this, dt);
@@ -164,17 +165,17 @@ export class GameWorld {
       players: [...this.players.values()].map(({ input, inputAt, ...p }) => ({ ...p, hp: Math.ceil(p.hp) })),
       monsters: this.monsters.filter(m => m.hp > 0 && (!player || distance(player, m) < 1150)).map(m => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: Math.ceil(m.hp), maxHp: m.maxHp, angle: m.angle, state: m.state, elite: m.elite, variant: m.variant, name: m.name, damage: m.damage, raidId: m.raidId, bossPhase: m.bossPhase, telegraph: m.telegraph })),
       loot: this.loot.filter(l => (!l.ownerId || l.ownerId === playerId) && (!player || distance(l, player) < 1000)), chests: this.chests,
-      projectiles: this.projectiles.map(({ hit, ...p }) => p), zones: this.zones,
+      projectiles: this.projectiles.map(({ hit, ...p }) => p), zones: this.zones, gravestones: this.gravestones,
       survival: survivalSnapshot(this), village: this.village,
     };
   }
 
   serialize() {
     return {
-      version: 4, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
+      version: 5, id: this.id, code: this.code, name: this.name, seed: this.seed, elapsed: this.elapsed, kills: this.kills,
       players: [...this.players.values()].map(({ input, inputAt, online, dashUntil, ...p }) => p),
       monsters: this.monsters.map(({ targetId, ...m }) => m),
-      chests: this.chests, loot: this.loot,
+      chests: this.chests, loot: this.loot, gravestones: this.gravestones,
       village: this.village, survival: this.survival, gameOver: this.gameOver, unlockedRegions: ['village', 'forest'],
     };
   }

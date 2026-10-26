@@ -72,4 +72,11 @@ export function createSurvivalArt(scene) {
     gradient.addColorStop(0, 'rgba(251,207,119,0.65)'); gradient.addColorStop(.3, 'rgba(223,172,92,0.2)'); gradient.addColorStop(1, 'rgba(219,170,85,0)');
     c.fillStyle = gradient; c.fillRect(0, 0, 128, 128);
   });
+  make('gravestone', 40, 48, (_c, r, p) => {
+    p([[5, 43], [8, 37], [33, 37], [37, 43], [32, 47], [8, 47]], '#3c454b');
+    p([[8, 39], [8, 13], [12, 5], [19, 1], [27, 4], [32, 12], [32, 40]], '#65747a');
+    p([[12, 36], [12, 14], [16, 8], [23, 7], [28, 14], [28, 37]], '#a8b4ac');
+    r(18, 13, 5, 17, '#e3e8c3'); r(13, 18, 15, 4, '#e3e8c3');
+    r(15, 33, 11, 2, '#667d7c'); r(6, 40, 29, 3, '#87958a');
+  });
 }

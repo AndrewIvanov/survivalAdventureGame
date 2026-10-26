@@ -13,7 +13,7 @@ export function clockInfo(clockMs) {
   const night = offset >= SURVIVAL.dayMs;
   return { day, phase: night ? 'night' : 'day', nightNumber: night ? day : Math.max(0, day - 1), remaining: (night ? CYCLE_MS : SURVIVAL.dayMs) - offset, warning: !night && offset >= SURVIVAL.dayMs - SURVIVAL.warningMs, progress: offset / CYCLE_MS };
 }
-export const waveSize = (night, party) => Math.max(0, Math.min(36, 6 + night * 2 + party * 2) * 10 - 10);
+export const waveSize = night => 40 + Math.max(0, Math.floor((night - 1) / 2)) * 20;
 export const nightStrength = night => ({ hp: 1 + Math.max(0, night - 1) * .2, damage: 1 + Math.max(0, night - 1) * .15 });
 export const BOSS_FORMS = [
   { id: 'forest', name: 'Древний лесной страж' },

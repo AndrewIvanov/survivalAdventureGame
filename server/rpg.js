@@ -5,6 +5,7 @@ import { addItem, makeItem, inventoryAction, consumeItem, refreshStats } from '.
 import { questAction, progressQuests } from './quests.js';
 import { skipDay } from './survival.js';
 import { summonGuardian } from './boss.js';
+import { carryGravestone } from './revival.js';
 
 export function nearbyNpc(world, player, npcId) {
   if (clockInfo(world.survival.clockMs).phase === 'night') throw new Error('Жители укрылись до рассвета. Приходите днём.');
@@ -17,6 +18,7 @@ export function rpgAction(world, player, action) {
   if (!player?.online || player.hp <= 0) throw new Error('Герой сейчас не может действовать.');
   if (!action || typeof action.type !== 'string') throw new Error('Неверное действие.');
   if (action.type === 'day:skip') return skipDay(world, player, action.ready);
+  if (action.type === 'grave:carry') return carryGravestone(world, player, action.graveId);
   if (['equip', 'unequip', 'use'].includes(action.type)) return inventoryAction(world, player, action);
   if (action.type === 'class') {
     if (typeof action.classId !== 'string' || !Object.hasOwn(CLASSES, action.classId)) throw new Error('Неизвестный класс.');

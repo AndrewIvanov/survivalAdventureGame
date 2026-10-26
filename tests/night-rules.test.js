@@ -8,7 +8,7 @@ import { updateMonsters } from '../server/ai.js';
 import { damageMonster } from '../server/combat.js';
 import { rpgAction } from '../server/rpg.js';
 import { makeItem, addItem } from '../server/inventory.js';
-import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength } from '../shared/survival.js';
+import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength, waveSize } from '../shared/survival.js';
 import { MONSTERS, distance } from '../shared/config.js';
 import { ITEMS, NPCS, EQUIPMENT_SLOTS, effectiveStats, itemStats } from '../shared/rpg.js';
 
@@ -20,6 +20,42 @@ function night(world, number) {
   world.monsters = []; world.survival.clockMs = (number - 1) * CYCLE_MS + SURVIVAL.dayMs;
   beginNight(world, number); updateSurvival(world, 0);
 }
+
+test('waves follow 40, 40 + boss, 60, 60 + boss, 80, 80 + boss for solo and duo', () => {
+  for (const party of [1, 2]) {
+    const { world } = setup();
+    if (party === 2) world.join('friend', 'Друг', 'sage');
+    for (let n = 1; n <= 12; n++) {
+      night(world, n);
+      assert.equal(world.survival.wave.total, 40 + Math.floor((n - 1) / 2) * 20);
+      assert.equal(world.survival.wave.bossRequired, n % 2 === 0);
+      assert.equal(world.monsters.filter(m => m.kind === 'guardian').length, n % 2 === 0 ? 1 : 0);
+    }
+  }
+  assert.equal(waveSize(39), 420, 'later nights continue adding 20 instead of capping the planned wave');
+});
+
+test('previous saves lower enemy stats once, resize an active wave and preserve boss, helpers and wounds', () => {
+  const { world, hero } = setup(); night(world, 2); hero.gold = 123;
+  const saved = world.serialize(); saved.survival.rulesVersion = 3;
+  saved.survival.wave.total = saved.survival.wave.spawned = 130;
+  const wolf = saved.monsters.find(m => m.kind === 'wolf');
+  const boss = saved.monsters.find(m => m.kind === 'guardian');
+  boss.hp = 1000; boss.maxHp = 4000; boss.damage = 60;
+  saved.monsters = [boss, { ...wolf, id: 'helper', summonOwner: boss.id }, ...Array.from({ length: 130 }, (_, i) => ({ ...wolf, id: `wolf-${i}`, hp: 40, maxHp: 160, damage: 22.5 }))];
+  const restored = new GameWorld(saved);
+  assert.equal(restored.survival.rulesVersion, 4); assert.equal(restored.survival.wave.total, 40);
+  assert.equal(restored.survival.wave.spawned, 40); assert.equal(restored.monsters.length, 42);
+  const migrated = restored.monsters.find(m => m.id === boss.id);
+  assert.equal(migrated.maxHp, 3200); assert.equal(migrated.hp, 800); assert.equal(migrated.damage, 48);
+  assert.equal(restored.monsters.find(m => m.id === 'wolf-129').hp, 32);
+  assert.ok(restored.monsters.some(m => m.id === 'helper'));
+  assert.equal(restored.kills, 0); assert.equal(restored.players.get(hero.id).gold, 123);
+  assert.equal(restored.survival.clockMs, saved.survival.clockMs);
+  const again = new GameWorld(restored.serialize());
+  assert.deepEqual(again.monsters, restored.monsters);
+  assert.equal(again.survival.wave.nextSpawnAt, restored.survival.wave.nextSpawnAt);
+});
 
 test('daylight has no ambient monsters; dawn removes all night creatures with no kill rewards', () => {
   const { world, hero } = setup(); assert.equal(world.monsters.length, 0);
@@ -35,20 +71,20 @@ test('daylight has no ambient monsters; dawn removes all night creatures with no
   world.tick(60); assert.ok(world.monsters.every(m => m.obelisk));
 });
 
-test('first night has ten fewer enemies and half the previous HP and damage', () => {
+test('first two nights have 40 enemies for either party size and 20% weaker monsters', () => {
   const { world } = setup(); night(world, 1);
-  assert.equal(world.survival.wave.total, 90); assert.equal(world.survival.wave.spawned, 5);
+  assert.equal(world.survival.wave.total, 40); assert.equal(world.survival.wave.spawned, 5);
   const wolf = world.monsters.find(m => m.kind === 'wolf');
-  assert.equal(wolf.maxHp, 64 * 2.5); assert.equal(wolf.damage, Math.round(9 * 2.5));
+  assert.equal(wolf.maxHp, 128); assert.equal(wolf.damage, 18);
   world.join('friend', 'Друг', 'sage'); night(world, 2);
-  assert.equal(world.survival.wave.total, (6 + 2 * 2 + 2 * 2) * 10 - 10);
+  assert.equal(world.survival.wave.total, 40);
 });
 
-test('even the largest planned wave can spawn within the two-minute night', () => {
+test('later waves still spawn throughout the two-minute night', () => {
   const { world } = setup(); night(world, 30);
   for (let i = 0; i < 2399; i++) { world.elapsed += 50; updateSurvival(world, .05); }
-  assert.equal(world.survival.wave.total, 350); assert.equal(world.survival.wave.spawned, 350);
-  assert.equal(world.monsters.length, 351); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
+  assert.equal(world.survival.wave.total, 320); assert.equal(world.survival.wave.spawned, 320);
+  assert.equal(world.monsters.length, 321); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
 });
 
 test('every consecutive night increases both normal-monster HP and damage', () => {

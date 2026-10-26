@@ -4,6 +4,7 @@ import { effectiveStats, CLASSES } from '../shared/rpg.js';
 import { canStand } from '../shared/map.js';
 import { checkPartyDefeat } from './game-over.js';
 import { rewardKill } from './rewards.js';
+import { leaveGravestone } from './revival.js';
 
 export function damageMonster(world, player, monster, amount, { critical = false, knockback = 0 } = {}) {
   if (world.gameOver || monster.hp <= 0) return;
@@ -91,7 +92,7 @@ export function damagePlayer(world, monster, player, amount) {
   player.hp = Math.max(0, player.hp - damage); player.lastHurt = world.elapsed;
   world.events.push({ type: 'hurt', id: player.id, x: player.x, y: player.y - 26, damage });
   if (player.hp === 0) {
-    player.respawnAt = world.elapsed + PLAYER.respawnDelay; player.input = {};
+    leaveGravestone(world, player);
     world.events.push({ type: 'death', id: player.id }); world.criticalSave = true;
     checkPartyDefeat(world);
   }

@@ -72,13 +72,13 @@ test('attacks check direction and range and grant levels', () => {
   assert.equal(p.level, 2); assert.equal(p.xp, 14); assert.equal(p.maxHp, 132);
 });
 
-test('death respawns in village while an ally survives; world pauses with no connected heroes', () => {
+test('death leaves a persistent gravestone while an ally survives; empty worlds pause', () => {
   const world = combatWorld(), p = world.join('a', 'A', 'ranger');
   world.join('b', 'Друг', 'sage');
   p.hp = 1; const m = world.monsters[0]; hurtPlayer(world, m, p);
-  assert.equal(p.hp, 0); assert.equal(p.respawnAt, PLAYER.respawnDelay);
+  assert.equal(p.hp, 0); assert.equal(world.gravestones[0].playerId, p.id);
   for (let i = 0; i < 101; i++) world.tick(.05);
-  assert.equal(p.hp, p.maxHp); assert.equal(p.x, WORLD.spawn.x);
+  assert.equal(p.hp, 0); assert.equal(world.gravestones.length, 1);
   world.leave('a'); world.leave('b'); const elapsed = world.elapsed;
   world.tick(1); assert.equal(world.elapsed, elapsed);
 });

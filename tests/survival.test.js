@@ -44,7 +44,7 @@ test('waves grow stronger, include night enemies, and every second night spawns 
   const first = world.survival.wave.total, firstHp = world.monsters.find(m => m.raidNight === 1).maxHp;
   assert.ok(world.monsters.some(m => m.kind === 'nightstalker'));
   night(world, 2);
-  assert.ok(world.survival.wave.total > first); assert.equal(world.survival.wave.bossRequired, true);
+  assert.equal(world.survival.wave.total, first); assert.equal(world.survival.wave.bossRequired, true);
   assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);
   assert.ok(world.monsters.find(m => m.raidNight === 2 && m.kind === 'wolf').maxHp > firstHp);
   world.tick(.05); assert.equal(world.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1);

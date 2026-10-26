@@ -44,7 +44,7 @@
 /* Day readiness and the final party defeat screen. */
 .survival-info { display:block; width:100%; text-align:left; color:inherit; }
 .survival-info>small { display:block; font-size:7px; line-height:1.7; color:#8fa57f; margin-top:8px; }
-.skip-day { display:block; width:100%; border:1px solid #b4a67770; padding:9px 6px; margin-top:12px; border-radius:2px; color:#e3d7ac; font-size:10px; background:#b4a67712; }
+.skip-day { display:block; width:100%; border:1px solid #cbb77c; padding:10px 6px; margin-top:12px; border-radius:2px; color:#f4e6b9; font-size:10px; background:#b4a67730; }
 .skip-day:hover { background:#b4a67725; }
 .skip-day[aria-pressed="true"] { background:#b4a67725; border-color:#cbb77c; }
 .skip-day:disabled { opacity:.5; cursor:default; }
@@ -57,3 +57,38 @@
 .game-over-card button { width:100%; margin-bottom:10px; }
 .game-over-card small { display:block; color:#92a184; font-size:10px; line-height:1.7; margin-top:12px; }
 @media(max-width:650px) { .skip-day { font-size:8px; padding:7px 4px; } .survival-info>small,#skip-day-status { font-size:6px; } .game-over-card { padding:24px; } }
+
+.chat-panel { position:absolute; left:24px; bottom:180px; width:300px; max-width:calc(100vw - 48px); border-radius:3px; background:#182b24f2; pointer-events:auto; z-index:20; }
+.death-card small { display:block; margin-top:16px; color:#b6c6a4; font-size:10px; }
+.carrying-grave { position:absolute; left:50%; bottom:150px; transform:translateX(-50%); max-width:80vw; padding:12px 18px; text-align:center; color:#e0e9c6; font-size:11px; border-color:#b8ce9c80; }
+.hud:has(#chat-body:not([hidden])) .field-notes { display:none; }
+.modal-backdrop { z-index:100; }
+.saved-world-list { max-height:280px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#7d8f6d #1b3026; }
+.saved-world-row { display:flex; align-items:center; gap:8px; }
+.saved-world-row .saved-world { flex:1; min-width:0; }
+.saved-world-row .saved-world>span:nth-child(2) { min-width:0; }
+.saved-world-row .saved-world strong { display:block; overflow:hidden; text-overflow:ellipsis; }
+.saved-world-row .saved-world small { font-size:8px; }
+.forget-world { flex-shrink:0; color:#b6a591; }
+.forget-world:hover { color:#efb09c; background:#bb715124; }
+.forget-confirm { background:#a46d4b; border-color:#bc865c; color:#fff0d0; }
+.chat-toggle { display:flex; align-items:center; gap:9px; width:100%; padding:11px 12px; color:#d9d2a6; font-size:11px; text-align:left; }
+.chat-toggle>.icon { width:15px; height:15px; color:#a6b58c; }
+.chat-toggle kbd { margin-left:auto; font-size:9px; }
+#chat-unread { min-width:17px; border-radius:10px; padding:2px 5px; background:#c4b17a; color:#182b24; text-align:center; font-size:9px; }
+#chat-body { border-top:1px solid #b4bf8f26; padding:0 10px 8px; }
+.chat-messages { max-height:min(160px, 24vh); overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#7d8f6d #1b3026; }
+.chat-message { padding:8px 2px; border-bottom:1px solid #b4bf8f12; font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
+.chat-message strong { color:#d3c18c; font-weight:500; }
+.chat-message.own strong { color:#aabd93; }
+.chat-message time { float:right; color:#8a9e82; font-size:9px; }
+.chat-message>span { display:block; color:#d1dbc2; white-space:pre-wrap; }
+.chat-empty { font-size:10px; line-height:1.6; color:#a6b697; padding:8px 2px; }
+.chat-form { display:flex; gap:5px; margin-top:8px; }
+.chat-form input { min-width:0; width:100%; padding:9px 8px; font-size:11px; color:#e0e6d2; background:#101f1a; border:1px solid #b4bf8f40; border-radius:2px; }
+.chat-form input::placeholder { color:#91a084; }
+.chat-form button { display:grid; place-items:center; width:34px; flex-shrink:0; border:1px solid #b4a67760; border-radius:2px; color:#dfd2a0; background:#b4a67717; }
+.chat-form button:hover { background:#b4a67730; }
+#chat-body>small { display:block; margin-top:7px; font-size:8px; color:#95a68a; }
+@media(max-width:850px) { .chat-panel { left:14px; width:260px; bottom:170px; } }
+@media(max-width:650px) { .chat-panel { left:10px; bottom:170px; width:240px; max-width:calc(100vw - 20px); } .chat-toggle { padding:9px 10px; font-size:10px; } }

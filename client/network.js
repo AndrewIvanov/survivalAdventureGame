@@ -27,6 +27,7 @@ export class Network extends EventTarget {
     this.socket.on('state', state => { this.state = state; this.emit('state', state); });
     this.socket.on('effects', effects => this.emit('effects', effects));
     this.socket.on('notice', notice => this.emit('notice', notice));
+    this.socket.on('chat:message', message => this.emit('chat', message));
     this.socket.on('session:replaced', () => {
       this.active = null; this.emit('replaced');
     });
@@ -70,6 +71,8 @@ export class Network extends EventTarget {
   dash() { if (this.active && this.socket.connected) this.socket.emit('dash'); }
   save() { return this.request('world:save'); }
   list() { return this.request('worlds:list'); }
+  forget(code) { return this.request('world:forget', { code }); }
+  chat(text) { return this.request('chat:send', { text }); }
   async action(data) {
     const result = await this.request('rpg:action', data); this.state = result.state; this.emit('state', result.state); return result;
   }

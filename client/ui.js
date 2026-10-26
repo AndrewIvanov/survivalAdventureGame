@@ -2,6 +2,8 @@ import { WORLD, PLAYER, inVillage, levelXp } from '../shared/config.js';
 import { heroToken } from './network.js';
 import { RpgInterface } from './rpg-ui.js';
 import { SurvivalInterface } from './survival-ui.js';
+import { ChatInterface } from './chat-ui.js';
+import { REVIVAL } from '../shared/revival.js';
 
 const paths = {
   tree: '<path d="m12 2 6 7h-4l6 7h-6v6h-4v-6H4l6-7H6Z"/>',
@@ -25,6 +27,7 @@ const paths = {
   door: '<path d="M9 21H3V3h12v5m-3 7h10m-4-4 4 4-4 4M9 3v18l6-3v-3"/>',
   copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
   flag: '<path d="M5 22V3m0 1c5-4 9 4 15 0v10c-6 4-10-4-15 0"/>',
 };
 export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.tree}</svg>`;
@@ -34,7 +37,7 @@ export class Interface {
   constructor(network, scene, game) {
     this.net = network; this.scene = scene; this.game = game; this.appearance = 'ranger'; this.mode = 'create'; this.panel = null;
     this.state = null; this.connected = false; this.lastLocation = null; this.modalReturnFocus = null;
-    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.bind();
+    this.mount(); this.rpg = new RpgInterface(this, { icon, escape }); this.survival = new SurvivalInterface(this, { icon }); this.chat = new ChatInterface(this, { icon }); this.bind();
   }
   mount() {
     document.querySelector('#app').innerHTML = `
@@ -66,7 +69,8 @@ export class Interface {
         <div class="action-area"><div class="action-hint">ВАША ИСТОРИЯ ТОЛЬКО НАЧИНАЕТСЯ</div><div class="action-bar panel"><button id="attack-info" class="action-slot attack-slot" aria-label="Основная атака — левая кнопка мыши"><span class="action-key">ЛКМ</span>${icon('sword')}<small>Атака</small></button><div class="action-divider"></div><button id="dash-button" class="action-slot" aria-label="Рывок — пробел"><span class="action-key">SPACE</span>${icon('bolt')}<small>Рывок</small><span id="dash-cooldown" class="cooldown" hidden></span></button><div class="action-divider"></div><button id="character-button" class="action-slot" aria-label="Герой — I"><span class="action-key">I</span>${icon('shield')}<small>Герой</small></button><button id="bottom-map" class="action-slot" aria-label="Карта — M"><span class="action-key">M</span>${icon('map')}<small>Карта</small></button></div><span class="combat-hint">Направляйте удары курсором</span></div>
         <div class="bottom-right"><div class="utility-buttons"><button class="icon-button" id="help-button" aria-label="Управление" title="Управление">${icon('help')}</button><button class="icon-button" id="fullscreen-button" aria-label="Полный экран" title="Полный экран">${icon('full')}</button><button class="icon-button" id="settings-button" aria-label="Игровое меню" title="Меню · Esc">${icon('settings')}</button></div><span id="save-status">${icon('save')} Мир сохраняется автоматически</span><span class="connection-info"><span class="connection-dot online"></span><span id="ping-value">Сервер подключён</span><b>v0.1</b></span></div>
         <div id="reconnect-banner" class="reconnect-banner" hidden>Соединение потеряно. Возвращаемся в ваш мир…</div>
-        <div id="death-overlay" class="death-overlay" hidden><div class="death-card">${icon('tree')}<div class="eyebrow">ЭТО НЕ КОНЕЦ ПУТИ</div><h2>Лес оказался сильнее</h2><p>Деревня ждёт вашего возвращения.</p><span id="respawn-counter">Возрождение через 5 с</span></div></div>
+        <div id="death-overlay" class="death-overlay" hidden><div class="death-card">${icon('tree')}<div class="eyebrow">ОЖИДАНИЕ ВОСКРЕШЕНИЯ</div><h2>Ваш герой пал</h2><p>Напарник должен забрать ваше надгробие<br>и принести его к алтарю в деревне.</p><span id="revival-status"></span><small>Вы наблюдаете за напарником · Enter — чат</small></div></div>
+        <div id="carrying-grave" class="carrying-grave panel" hidden></div>
       </section>
       <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal" class="modal panel" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section></div>
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
@@ -95,6 +99,10 @@ export class Interface {
     this.$('restore-key').onclick = () => this.openPanel('restore');
     this.$('modal-backdrop').addEventListener('click', event => { if (event.target === this.$('modal-backdrop')) this.closePanel(); });
     document.addEventListener('keydown', event => {
+      if (event.code === 'Escape' && event.repeat) return;
+      if (event.code === 'Escape' && !this.$('chat-body').hidden && !this.panel && !this.state?.gameOver) {
+        event.preventDefault(); this.chat.setOpen(false); return;
+      }
       if (this.net.active && this.state?.gameOver) {
         if (event.code === 'Tab') {
           const first = this.$('game-over-restart'), last = this.$('game-over-menu');
@@ -175,8 +183,11 @@ export class Interface {
     try {
       const { worlds } = await this.net.list();
       const box = this.$('saved-worlds'); box.hidden = worlds.length === 0;
-      box.innerHTML = `<div class="field-label">ВАШИ ПУТЕШЕСТВИЯ</div>${worlds.slice(0, 3).map(w => `<button class="saved-world" data-code="${escape(w.code)}"><span class="save-world-icon">${icon('tree')}</span><span><strong>${escape(w.name)}</strong><small>${w.code} · Уровень ${w.level} · ${w.members}/2 героя</small></span>${icon('arrow')}</button>`).join('')}`;
+      box.innerHTML = `<div class="field-label">ВАШИ ПУТЕШЕСТВИЯ</div><div class="saved-world-list">${worlds.map(w => `<div class="saved-world-row"><button class="saved-world" data-code="${escape(w.code)}"><span class="save-world-icon">${icon('tree')}</span><span><strong>${escape(w.name)}</strong><small>${escape(w.code)} · Уровень ${w.level} · ${w.members}/2 героя</small></span>${icon('arrow')}</button><button class="forget-world icon-button" data-forget="${escape(w.code)}" aria-label="Удалить путешествие ${escape(w.code)} из списка" title="Удалить из списка">${icon('trash')}</button></div>`).join('')}</div>`;
       box.querySelectorAll('[data-code]').forEach(button => button.onclick = () => this.enter(button.dataset.code));
+      box.querySelectorAll('[data-forget]').forEach(button => button.onclick = () => {
+        this.forgetWorld = worlds.find(w => w.code === button.dataset.forget); this.openPanel('forget');
+      });
     } catch { /* Connection status already explains unavailable server. */ }
   }
   render(state) {
@@ -203,12 +214,16 @@ export class Interface {
     this.$('objective-kill').classList.toggle('done', me.kills > 0);
     const ally = state.players.find(p => p.id !== me.id);
     this.$('party-count').textContent = `${state.players.filter(p => p.online).length}/2`;
-    this.$('companion-content').innerHTML = ally ? `<strong>${escape(ally.name)} <small>УР. ${ally.level}</small></strong><span>${ally.online ? (ally.hp > 0 ? `${ally.hp} / ${ally.maxHp} HP · в вашем мире` : 'Возрождается в деревне') : 'Не в сети · прогресс сохранён'}</span>` : '<strong>Место для друга</strong><span>Пригласите по коду мира</span>';
+    this.$('companion-content').innerHTML = ally ? `<strong>${escape(ally.name)} <small>УР. ${ally.level}</small></strong><span>${ally.online ? (ally.hp > 0 ? `${ally.hp} / ${ally.maxHp} HP · в вашем мире` : 'Пал · отнесите надгробие к алтарю') : 'Не в сети · прогресс сохранён'}</span>` : '<strong>Место для друга</strong><span>Пригласите по коду мира</span>';
     const cooldown = Math.max(0, PLAYER.dashCooldown - (state.elapsed - me.lastDash));
     this.$('dash-cooldown').hidden = cooldown <= 0;
     this.$('dash-cooldown').textContent = (cooldown / 1000).toFixed(1);
     this.$('death-overlay').hidden = me.hp > 0 || !!state.gameOver;
-    this.$('respawn-counter').textContent = `Возвращение через ${Math.max(1, Math.ceil((me.respawnAt - state.elapsed) / 1000))} с`;
+    const grave = state.gravestones?.find(g => g.playerId === me.id), carrier = state.players.find(p => p.id === grave?.carrierId);
+    this.$('revival-status').textContent = carrier ? `${carrier.name} несёт ваше надгробие к алтарю.` : ally?.hp > 0 && !ally.online ? `${ally.name} не в сети. Мир ждёт его возвращения.` : 'Надгробие ждёт напарника на месте вашей гибели.';
+    const carried = state.gravestones?.find(g => g.carrierId === me.id), carrying = this.$('carrying-grave');
+    carrying.hidden = !carried || !!state.gameOver;
+    if (carried) carrying.textContent = `Надгробие: ${carried.name} · Отнесите к алтарю в деревне · См. карту M`;
     if (state.savedAt) this.$('save-status').innerHTML = `${icon('save')} Сохранено в ${new Date(state.savedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
     this.drawMap(this.$('minimap'), false);
     if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
@@ -228,6 +243,15 @@ export class Interface {
     c.fillStyle = '#b39a68';
     for (const b of this.scene.map?.buildings || []) c.fillRect((b.x - 55) * sx, (b.y - 60) * sy, 110 * sx, 65 * sy);
     c.fillStyle = '#99bfc0'; c.fillRect(1513 * sx, 1130 * sy, 46 * sx, 46 * sy);
+    c.strokeStyle = '#d2e6d1'; c.lineWidth = full ? 3 : 2;
+    const ax = REVIVAL.altar.x * sx, ay = REVIVAL.altar.y * sy, arm = full ? 7 : 4;
+    c.beginPath(); c.moveTo(ax - arm, ay); c.lineTo(ax + arm, ay); c.moveTo(ax, ay - arm); c.lineTo(ax, ay + arm); c.stroke();
+    if (full) { c.fillStyle = '#d2e6d1'; c.font = '11px Georgia'; c.textAlign = 'center'; c.fillText('АЛТАРЬ', ax, ay + 22); }
+    for (const grave of this.state.gravestones || []) {
+      if (grave.carrierId) continue;
+      c.fillStyle = '#e2dbc1'; const size = full ? 7 : 4;
+      c.fillRect(grave.x * sx - size / 2, grave.y * sy - size, size, size * 1.4);
+    }
     this.survival.markMap(c, sx, sy, full, this.state);
     for (const m of this.state.monsters) {
       c.fillStyle = '#bc775c'; c.beginPath(); c.arc(m.x * sx, m.y * sy, full ? 3 : 1.5, 0, Math.PI * 2); c.fill();
@@ -255,16 +279,28 @@ export class Interface {
     this.panel = type; this.scene.pausedInput = true;
     this.scene.input?.keyboard?.resetKeys();
     this.$('modal-backdrop').hidden = false;
-    const title = { map: 'Карта окрестностей', hero: 'Ваш герой', settings: 'Небольшая передышка', help: 'Находите свой путь', restore: 'Вернуться к своей истории' }[type];
+    const title = { map: 'Карта окрестностей', hero: 'Ваш герой', settings: 'Небольшая передышка', help: 'Находите свой путь', restore: 'Вернуться к своей истории', forget: 'Удалить путешествие?' }[type];
     const body = {
       map: `<p class="muted">Забытые земли · Деревня и Тёмный лес</p><canvas id="world-map" width="768" height="518"></canvas><div class="map-legend"><span><i class="legend-dot hero-dot"></i>Вы</span><span><i class="legend-dot ally-dot"></i>Напарник</span><span><i class="legend-dot enemy-dot"></i>Противник</span><span>Двигайтесь по тропам. В деревне безопасно.</span></div>`,
       settings: `<p class="muted">Мир продолжает жить, пока вы открываете меню.<br>Для отдыха вернитесь в безопасную деревню.</p><div class="settings-row"><label for="effects-toggle">Эффекты и встряска камеры</label><input id="effects-toggle" type="checkbox" ${this.scene.effectsEnabled ? 'checked' : ''}></div><button id="save-now" class="secondary-button">${icon('save')} Сохранить сейчас</button><button id="backup-key" class="secondary-button">${icon('copy')} Скопировать ключ героя</button><p class="panel-footnote">Ключ возвращает вашего героя на другом компьютере. Храните его у себя и не отправляйте другим игрокам.</p><button id="resume-button" class="primary-button">Продолжить путешествие ${icon('arrow')}</button><button id="leave-world" class="text-button">${icon('door')} Сохранить и выйти в меню</button>`,
-      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R</kbd> Способности в сторону курсора</span><span><kbd>F</kbd> NPC, добыча, сундуки</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ESC</kbd> Игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. После смерти вы вернётесь к фонтану через 5 секунд без потери опыта.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
+      help: `<p class="muted">Вы и ваш друг делите один постоянный мир.<br>Вместе исследуйте лес, побеждайте врагов и набирайтесь опыта.</p><div class="controls-list"><span><kbd>W A S D</kbd> Движение <small>или стрелки</small></span><span><kbd>ЛКМ</kbd> Атака в сторону курсора</span><span><kbd>SPACE</kbd> Рывок <small>перезарядка 2,4 с</small></span><span><kbd>Q E R</kbd> Способности в сторону курсора</span><span><kbd>F</kbd> NPC, добыча, сундуки</span><span><kbd>I / C / J</kbd> Рюкзак / герой / задания</span><span><kbd>1</kbd> Зелье здоровья</span><span><kbd>M</kbd> Карта мира</span><span><kbd>ENTER</kbd> Чат отряда / отправить сообщение</span><span><kbd>ESC</kbd> Закрыть чат / игровое меню</span></div><div class="help-tip">${icon('heart')} В деревне здоровье восстанавливается. Для воскрешения напарник должен забрать надгробие клавишей F и принести его к алтарю в северо-западной части деревни.</div><p class="panel-footnote">Чтобы пригласить друга, отправьте ему адрес игры и код мира в левом нижнем углу. Максимум два постоянных героя в мире.</p>`,
       restore: `<p class="muted">Введите сохранённый ключ героя, чтобы открыть его миры на этом устройстве.</p><form id="restore-form"><label class="field-label" for="restore-input">ЛИЧНЫЙ КЛЮЧ ГЕРОЯ</label><input id="restore-input" required minlength="32" maxlength="128" autocomplete="off" spellcheck="false" placeholder="Вставьте ключ"><p class="panel-footnote">Текущий ключ будет заменён только в этом браузере. Если он нужен, сначала скопируйте его.</p><button type="button" id="copy-current-key" class="secondary-button">${icon('copy')} Скопировать текущий ключ</button><button type="submit" class="primary-button">Восстановить героя ${icon('arrow')}</button></form>`,
+      forget: `<p class="muted"><b>${escape(this.forgetWorld?.name || '')} · ${escape(this.forgetWorld?.code || '')}</b></p><p class="panel-footnote">Путешествие исчезнет из вашего списка. Прогресс героев и доступ друга сохранятся. Чтобы вернуться, присоединитесь по коду <b>${escape(this.forgetWorld?.code || '')}</b>.</p><button id="confirm-forget" class="primary-button forget-confirm">${icon('trash')} Удалить из списка</button><button id="cancel-forget" class="secondary-button">Отмена</button>`,
     }[type];
     this.$('modal').classList.toggle('wide', type === 'map');
     this.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL</div><h2 id="modal-title">${title}</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${icon('close')}</button></div>${body}`;
     this.$('close-modal').onclick = () => this.closePanel(); this.$('close-modal').focus();
+    if (type === 'forget') {
+      this.$('cancel-forget').onclick = () => this.closePanel();
+      this.$('confirm-forget').onclick = async event => {
+        const button = event.currentTarget; button.disabled = true;
+        try {
+          await this.net.forget(this.forgetWorld.code); this.closePanel(); await this.refreshWorlds();
+          this.toast('Путешествие удалено из вашего списка.');
+        } catch (error) { this.toast(error.message, 'error'); }
+        finally { button.disabled = false; }
+      };
+    }
     if (type === 'map') this.drawMap(this.$('world-map'), true);
     if (type === 'settings') {
       this.$('effects-toggle').onchange = event => { this.scene.effectsEnabled = event.target.checked; };
