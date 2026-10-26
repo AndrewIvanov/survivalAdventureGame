@@ -11,6 +11,7 @@ import { progressQuests } from './quests.js';
 import { updateZones } from './abilities.js';
 import { SURVIVAL, sheltered, clockInfo } from '../shared/survival.js';
 import { initializeSurvival, updateSurvival, resolveWave, survivalSnapshot } from './survival.js';
+import { checkPartyDefeat } from './game-over.js';
 import { updateBosses } from './boss.js';
 
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -34,8 +35,10 @@ export class GameWorld {
     this.projectiles = []; this.projectilePool = []; this.zones = [];
     this.monsterPool = [];
     this.survival = initializeSurvival(saved?.survival);
+    this.daySkipVotes = new Set();
+    this.gameOver = structuredClone(saved?.gameOver || null);
     this.village = { level: 1, buildings: this.map.buildings.map(b => b.id), maxHp: SURVIVAL.villageHp, hp: SURVIVAL.villageHp, failures: 0, ...saved?.village };
-    const migrated = saved?.survival && saved.survival.rulesVersion !== 2;
+    const migrated = saved?.survival && (saved.survival.rulesVersion || 1) < 2;
     this.monsters = structuredClone(saved?.monsters || []).filter(m => {
       if (m.kind === 'guardian' && !m.raidId) return m.hp > 0;
       return !migrated && clockInfo(this.survival.clockMs).phase === 'night';
@@ -46,6 +49,19 @@ export class GameWorld {
         monster.hp *= 5; monster.maxHp *= 5; monster.damage *= 5;
         this.survival.lastSummonDay = clockInfo(this.survival.clockMs).day;
       }
+    }
+    if (saved?.survival && (saved.survival.rulesVersion || 1) < 3) {
+      for (const monster of this.monsters) {
+        monster.hp /= 2; monster.maxHp /= 2; monster.damage = (monster.damage || MONSTERS[monster.kind].damage * 2) / 2;
+      }
+      const wave = this.survival.wave;
+      if (wave?.status === 'active') wave.nextSpawnAt = Math.max(this.elapsed, wave.startedAt + wave.spawned / wave.total * SURVIVAL.nightMs);
+      // If the complete old wave was already spawned, retire its ten removed slots.
+      let excess = Math.max(0, (saved.survival.wave?.spawned || 0) - (this.survival.wave?.total ?? Infinity));
+      this.monsters = this.monsters.filter(m => {
+        if (excess && m.raidId === this.survival.wave?.id && m.kind !== 'guardian') { excess--; return false; }
+        return true;
+      });
     }
     this.events = [];
     this.criticalSave = false;
@@ -58,13 +74,14 @@ export class GameWorld {
       if (this.players.size >= 2) throw new Error('В этом мире уже есть два героя. Создайте новый мир.');
       player = {
         id, name, appearance, x: WORLD.spawn.x + this.players.size * 42, y: WORLD.spawn.y,
-        hp: PLAYER.maxHp, maxHp: PLAYER.maxHp, level: 1, xp: 0, gold: 0, kills: 0,
+        hp: PLAYER.maxHp, maxHp: PLAYER.maxHp, level: 1, xp: 0, gold: PLAYER.startingGold, kills: 0,
         explored: ['village'], angle: -Math.PI / 2, respawnAt: 0, invulnerableUntil: 0,
         lastAttack: -1000, lastDash: -3000, lastHurt: -10000,
       };
       initializeRpg(player, classId);
       this.players.set(id, player);
     }
+    this.daySkipVotes.clear();
     player.online = true; player.input = {}; player.inputAt = 0;
     if (this.survival.wave?.status === 'active' && !this.survival.wave.participants.includes(id)) this.survival.wave.participants.push(id);
     if (!canStand(player.x, player.y, this.grid)) { player.x = WORLD.spawn.x; player.y = WORLD.spawn.y; }
@@ -72,16 +89,16 @@ export class GameWorld {
     return player;
   }
 
-  leave(id) {
+  leave(id, { checkDefeat = true } = {}) {
     const p = this.players.get(id);
-    if (p) { p.online = false; p.input = {}; }
+    if (p) { p.online = false; p.input = {}; this.daySkipVotes.clear(); if (checkDefeat) checkPartyDefeat(this); }
   }
 
   move(entity, dx, dy, radius = PLAYER.radius) { moveEntity(entity, dx, dy, this.grid, radius); }
 
   input(id, data, now = Date.now()) {
     const p = this.players.get(id);
-    if (!p || !data || !Number.isFinite(data.x) || !Number.isFinite(data.y) || !Number.isFinite(data.angle)) return;
+    if (this.gameOver || !p || !data || !Number.isFinite(data.x) || !Number.isFinite(data.y) || !Number.isFinite(data.angle)) return;
     let x = clamp(data.x, -1, 1), y = clamp(data.y, -1, 1);
     const length = Math.hypot(x, y);
     if (length > 1) { x /= length; y /= length; }
@@ -92,7 +109,7 @@ export class GameWorld {
 
   dash(id) {
     const p = this.players.get(id);
-    if (!p || p.hp <= 0 || this.elapsed - p.lastDash < PLAYER.dashCooldown) return;
+    if (this.gameOver || !p || p.hp <= 0 || this.elapsed - p.lastDash < PLAYER.dashCooldown) return;
     p.lastDash = this.elapsed;
     p.dashUntil = this.elapsed + 150;
     const input = p.input || {};
@@ -102,7 +119,7 @@ export class GameWorld {
   }
 
   tick(dt, now = Date.now()) {
-    if (![...this.players.values()].some(p => p.online)) return;
+    if (this.gameOver || checkPartyDefeat(this) || ![...this.players.values()].some(p => p.online)) return;
     this.elapsed += dt * 1000;
     updateSurvival(this, dt);
     for (const p of this.players.values()) {
@@ -136,14 +153,14 @@ export class GameWorld {
     updateProjectiles(this, dt); updateZones(this);
     updateBosses(this, dt);
     updateMonsters(this, dt);
-    resolveWave(this);
+    if (!this.gameOver) resolveWave(this);
     this.loot = this.loot.filter(l => l.permanent || l.expiresAt > this.elapsed);
   }
 
   snapshot(playerId) {
     const player = this.players.get(playerId);
     return {
-      id: this.id, code: this.code, name: this.name, elapsed: this.elapsed, kills: this.kills, savedAt: this.savedAt,
+      id: this.id, code: this.code, name: this.name, gameOver: this.gameOver, elapsed: this.elapsed, kills: this.kills, savedAt: this.savedAt,
       players: [...this.players.values()].map(({ input, inputAt, ...p }) => ({ ...p, hp: Math.ceil(p.hp) })),
       monsters: this.monsters.filter(m => m.hp > 0 && (!player || distance(player, m) < 1150)).map(m => ({ id: m.id, kind: m.kind, x: m.x, y: m.y, hp: Math.ceil(m.hp), maxHp: m.maxHp, angle: m.angle, state: m.state, elite: m.elite, variant: m.variant, name: m.name, damage: m.damage, raidId: m.raidId, bossPhase: m.bossPhase, telegraph: m.telegraph })),
       loot: this.loot.filter(l => (!l.ownerId || l.ownerId === playerId) && (!player || distance(l, player) < 1000)), chests: this.chests,
@@ -158,7 +175,7 @@ export class GameWorld {
       players: [...this.players.values()].map(({ input, inputAt, online, dashUntil, ...p }) => p),
       monsters: this.monsters.map(({ targetId, ...m }) => m),
       chests: this.chests, loot: this.loot,
-      village: this.village, survival: this.survival, unlockedRegions: ['village', 'forest'],
+      village: this.village, survival: this.survival, gameOver: this.gameOver, unlockedRegions: ['village', 'forest'],
     };
   }
 }

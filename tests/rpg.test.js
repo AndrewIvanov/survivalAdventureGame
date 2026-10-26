@@ -59,7 +59,7 @@ test('equipment affects damage and armor; potions are consumed once with cooldow
   assert.throws(() => rpgAction(world, p, { type: 'equip', itemId: wrong.id }));
   const armor = makeItem('armor'); addItem(p, armor); rpgAction(world, p, { type: 'equip', itemId: armor.id });
   assert.equal(effectiveStats(p).armor, 6);
-  const before = p.hp; hurtPlayer(world, world.monsters[0], p); assert.equal(p.hp, before - (MONSTERS.wolf.damage - effectiveStats(p).armor));
+  const before = p.hp; hurtPlayer(world, world.monsters[0], p); assert.equal(p.hp, before - Math.round(MONSTERS.wolf.damage - effectiveStats(p).armor));
   p.hp = 20; const potion = p.inventory.find(i => i.baseId === 'health');
   rpgAction(world, p, { type: 'use', itemId: potion.id }); assert.equal(p.hp, 85); assert.equal(potion.quantity, 2);
   assert.throws(() => rpgAction(world, p, { type: 'use', itemId: potion.id }));

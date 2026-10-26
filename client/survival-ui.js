@@ -5,22 +5,57 @@ const formatTime = ms => { const seconds = Math.ceil(Math.max(0, ms) / 1000); re
 export class SurvivalInterface {
   constructor(ui, { icon }) {
     this.ui = ui; this.icon = icon;
-    const panel = document.createElement('button'); panel.id = 'survival-panel'; panel.className = 'survival-panel panel';
+    const panel = document.createElement('section'); panel.id = 'survival-panel'; panel.className = 'survival-panel panel';
     panel.setAttribute('aria-label', 'Время, нападения и защита деревни');
     panel.innerHTML = `<div class="survival-heading"><span id="survival-phase">${icon('sun')} ДЕНЬ 1</span><span id="survival-timer">5:00</span></div><div class="cycle-track"><div id="cycle-fill"></div></div><div id="wave-summary">Лес пока спокоен</div><div class="village-defense-label"><span>${icon('shield')} Защита деревни</span><b id="village-hp-label">900 / 900</b></div><div class="village-defense-track"><div id="village-hp-fill"></div></div><small id="survival-next">До наступления ночи</small>`;
-    panel.onclick = () => this.open(); this.ui.$('hud').append(panel);
+    panel.innerHTML = `<button id="survival-info" class="survival-info" aria-label="Правила выживания">${panel.innerHTML}</button><button id="skip-day" class="skip-day" aria-pressed="false">Пропустить день</button><small id="skip-day-status"></small>`;
+    this.ui.$('hud').append(panel);
+    this.ui.$('survival-info').onclick = () => this.open();
+    this.ui.$('skip-day').onclick = async () => {
+      if (this.skipPending) return;
+      this.skipPending = true; this.ui.$('skip-day').disabled = true;
+      const ready = !this.ui.state?.survival?.skipDayVotes?.includes(this.ui.net.playerId);
+      await this.ui.rpg.perform({ type: 'day:skip', ready });
+      this.skipPending = false;
+      if (this.ui.state) this.render(this.ui.state, this.ui.state.players.find(p => p.id === this.ui.net.playerId));
+    };
+    const end = document.createElement('div'); end.id = 'game-over-overlay'; end.className = 'game-over-overlay'; end.hidden = true;
+    end.innerHTML = `<section class="game-over-card" role="dialog" aria-modal="true" aria-labelledby="game-over-title"><div class="eyebrow">ПРИКЛЮЧЕНИЕ ЗАВЕРШЕНО</div><h2 id="game-over-title">Отряд пал</h2><p>Все подключённые герои погибли. Эта история закончилась.</p><div id="game-over-result"></div><button id="game-over-restart" class="primary-button">Новое приключение ${icon('arrow')}</button><button id="game-over-menu" class="secondary-button">В главное меню</button><small>Новый мир начнётся с первого дня и 50 золотых у каждого героя.</small></section>`;
+    this.ui.$('hud').append(end);
+    const leave = async restart => {
+      const button = this.ui.$(restart ? 'game-over-restart' : 'game-over-menu'); button.disabled = true;
+      try { await this.ui.net.leave(); this.ui.setMode('create'); if (restart) await this.ui.enter(); }
+      catch (error) { this.ui.toast(error.message, 'error'); }
+      finally { button.disabled = false; }
+    };
+    this.ui.$('game-over-restart').onclick = () => leave(true);
+    this.ui.$('game-over-menu').onclick = () => leave(false);
     const boss = document.createElement('div'); boss.id = 'boss-hud'; boss.className = 'boss-hud'; boss.hidden = true;
     boss.innerHTML = '<div class="boss-hud-label"><span>ДРЕВНИЙ ЛЕСНОЙ СТРАЖ</span><small id="boss-phase-label">ФАЗА I</small></div><div class="boss-hp-track"><div id="boss-hp-fill"></div><span id="boss-hp-value"></span></div><small>Уходите из отмеченных областей · Space — рывок</small>';
     this.ui.$('hud').append(boss);
     const banner = document.createElement('div'); banner.id = 'survival-banner'; banner.className = 'survival-banner'; banner.hidden = true;
     this.ui.$('hud').append(banner);
-    document.querySelector('.version').innerHTML = 'ВЫЖИВАНИЕ · ЭТАП 3 <span>v0.3.2</span>';
-    document.querySelector('.connection-info b').textContent = 'v0.3.2';
+    document.querySelector('.version').innerHTML = 'ВЫЖИВАНИЕ · ЭТАП 3 <span>v0.3.3</span>';
+    document.querySelector('.connection-info b').textContent = 'v0.3.3';
     this.ui.net.on('effects', events => this.effects(events));
   }
   render(state, me) {
     const s = state.survival; if (!s) return;
     const active = assaultActive(s), village = state.village;
+    const skip = this.ui.$('skip-day'), votes = s.skipDayVotes || [], voted = votes.includes(me?.id);
+    skip.hidden = s.phase !== 'day' || !!state.gameOver;
+    skip.disabled = !!this.skipPending || !me || me.hp <= 0;
+    skip.setAttribute('aria-pressed', String(voted));
+    skip.textContent = voted ? `Отменить готовность · ${votes.length}/${s.skipDayPlayers}` : 'Пропустить день';
+    this.ui.$('skip-day-status').hidden = skip.hidden;
+    this.ui.$('skip-day-status').textContent = s.skipDayPlayers > 1 ? votes.length ? `Готовы: ${votes.length} из ${s.skipDayPlayers}. Ждём напарника.` : 'Начать ночь, когда оба героя готовы' : 'Сразу начать ночь';
+    const end = this.ui.$('game-over-overlay');
+    if (state.gameOver) {
+      if (end.hidden) { this.ui.closePanel(); end.hidden = false; this.ui.$('game-over-restart').focus(); }
+      this.ui.scene.pausedInput = true; this.ui.scene.input?.keyboard?.resetKeys();
+      this.ui.$('game-over-result').textContent = `${state.gameOver.phase === 'night' ? 'Ночь' : 'День'} ${state.gameOver.day} · Побеждено врагов: ${state.gameOver.kills}`;
+    }
+    end.hidden = !state.gameOver;
     this.ui.$('survival-panel').classList.toggle('under-attack', active);
     this.ui.$('survival-panel').classList.toggle('night', s.phase === 'night');
     this.ui.$('survival-phase').innerHTML = `${this.icon(s.phase === 'night' ? 'compass' : 'sun')} ${s.phase === 'night' ? 'НОЧЬ' : 'ДЕНЬ'} ${s.day}`;
@@ -66,7 +101,7 @@ export class SurvivalInterface {
   open() {
     this.ui.panel = 'survival'; this.ui.scene.pausedInput = true; this.ui.scene.input?.keyboard?.resetKeys();
     this.ui.$('modal-backdrop').hidden = false; this.ui.$('modal').classList.remove('wide');
-    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · ВЫЖИВАНИЕ</div><h2 id="modal-title">Дожить до рассвета</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><div class="survival-guide"><p>День длится <b>5 минут</b>, ночь — <b>2 минуты</b>. За 30 секунд до темноты придёт предупреждение.</p><p>Днём лес свободен от монстров. Ночью жители скрываются, а монстры охотятся за героями по всей карте, включая деревню. Ночью деревня не лечит.</p><p>Врагов в <b>10 раз больше</b>, их начальное здоровье и урон усилены <b>в 5 раз</b>. Каждая следующая ночь добавляет 20% базового здоровья и 15% базового урона. Уничтожьте волну или продержитесь до рассвета.</p><p>Каждую <b>вторую ночь</b> приходит босс: лесной, ледяной, пепельный или грозовой. Их здоровье и урон растут вместе с номером ночи.</p><p><b>Обелиск на восточной поляне</b> позволяет призвать отдельного босса один раз за игровой день для всего отряда. Это единственное исключение для дневных монстров. Новый призыв открывается после рассвета.</p><p>Кузнец днём улучшает оружие, броню, сапоги, щит, шлем и кольцо до <b>+10</b>. Надевайте и снимайте вещи в рюкзаке — I. Новое снаряжение продаётся в деревне и выпадает из врагов.</p><p>Пустой мир приостанавливается. Прогресс героев, время, волна и использованный призыв сохраняются между сессиями.</p></div>`;
+    this.ui.$('modal').innerHTML = `<div class="modal-heading"><div><div class="eyebrow">VILLAGE SURVIVAL · ВЫЖИВАНИЕ</div><h2 id="modal-title">Дожить до рассвета</h2></div><button id="close-modal" class="icon-button" aria-label="Закрыть окно">${this.icon('close')}</button></div><div class="survival-guide"><p>День длится <b>5 минут</b>, ночь — <b>2 минуты</b>. За 30 секунд до темноты придёт предупреждение. Кнопка «Пропустить день» сразу начинает ночь; вдвоём нужно согласие обоих подключённых героев.</p><p>Новый герой получает <b>50 золотых</b>. Когда погибнут все подключённые герои, игра закончится. Пока напарник жив, павший герой возрождается в деревне через 5 секунд.</p><p>Днём лес свободен от монстров. Ночью жители скрываются, а монстры охотятся за героями по всей карте, включая деревню. Ночью деревня не лечит.</p><p>В первой волне 90 врагов для одного героя или 110 для двух. Они приходят небольшими группами по 5 в течение всей двухминутной ночи. Здоровье и урон всех монстров и боссов уменьшены вдвое по сравнению с прошлой версией. Каждая следующая ночь добавляет 20% базового здоровья и 15% базового урона. Уничтожьте волну или продержитесь до рассвета.</p><p>Каждую <b>вторую ночь</b> приходит босс: лесной, ледяной, пепельный или грозовой. Их здоровье и урон растут вместе с номером ночи.</p><p><b>Обелиск на восточной поляне</b> позволяет призвать отдельного босса один раз за игровой день для всего отряда. Это единственное исключение для дневных монстров. Новый призыв открывается после рассвета.</p><p>Кузнец днём улучшает оружие, броню, сапоги, щит, шлем и кольцо до <b>+10</b>. Надевайте и снимайте вещи в рюкзаке — I. Новое снаряжение продаётся в деревне и выпадает из врагов.</p><p>Пустой мир приостанавливается. Прогресс героев, время, волна и использованный призыв сохраняются между сессиями.</p></div>`;
     this.ui.$('close-modal').onclick = () => this.ui.closePanel(); this.ui.$('close-modal').focus();
   }
   markMap(c, sx, sy, full, state) {

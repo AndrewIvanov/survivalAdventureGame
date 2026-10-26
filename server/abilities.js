@@ -4,6 +4,7 @@ import { distance, WORLD, clamp } from '../shared/config.js';
 import { melee, projectile, damageMonster } from './combat.js';
 
 export function castAbility(world, player, data) {
+  if (world.gameOver) throw new Error('Игра завершена. Начните новое приключение.');
   if (!player?.online || player.hp <= 0) throw new Error('Герой сейчас не может использовать способность.');
   const ability = typeof data?.key === 'string' && Object.hasOwn(ABILITIES[player.classId] || {}, data.key) ? ABILITIES[player.classId][data.key] : null;
   if (!ability || !Number.isFinite(data.x) || !Number.isFinite(data.y)) throw new Error('Неверная способность или цель.');

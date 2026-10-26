@@ -18,7 +18,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
   const io = new Server(http, { maxHttpBufferSize: 8192, pingTimeout: 15000 });
   const worlds = new Map(), sessions = new Map();
   let vite, closing = false, closePromise, commands = Promise.resolve();
-  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: '0.3.2', storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
+  app.get('/api/health', (_req, res) => res.status(closing ? 503 : 200).json({ ok: !closing, version: '0.3.3', storage: databaseUrl ? 'postgresql' : 'sqlite', worlds: worlds.size }));
   if (dev) {
     const { createServer: createViteServer } = await import('vite');
     vite = await createViteServer({ root, server: { middlewareMode: true, hmr: { server: http } }, appType: 'spa' });
@@ -39,7 +39,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
     if (!world) return true;
     if (sessions.get(`${worldId}:${playerId}`) !== socket.id) return true;
     sessions.delete(`${worldId}:${playerId}`);
-    world.leave(playerId);
+    world.leave(playerId, { checkDefeat: !closing });
     socket.leave(worldId); socket.data.worldId = null;
     const ok = closing ? true : await save(world);
     io.to(worldId).emit('notice', { message: ok ? 'Напарник покинул мир. Его прогресс сохранён.' : 'Напарник покинул мир. Сервер повторяет сохранение прогресса.' });
@@ -175,7 +175,7 @@ export async function createGameServer({ database = path.join(root, 'data/villag
       closing = true;
       clearInterval(timer);
       await commands;
-      for (const world of worlds.values()) for (const player of world.players.values()) world.leave(player.id);
+      for (const world of worlds.values()) for (const player of world.players.values()) world.leave(player.id, { checkDefeat: false });
       const results = await Promise.all([...worlds.values()].map(save));
       await saves.flush();
       // Close Vite's HMR sockets before closing the shared HTTP server;

@@ -40,3 +40,20 @@
 .smith-upgrade .shop-list .secondary-button { min-width:155px; font-size:11px; }
 
 .item-bonuses span { display:inline-block; margin:0 10px 8px 0; }
+
+/* Day readiness and the final party defeat screen. */
+.survival-info { display:block; width:100%; text-align:left; color:inherit; }
+.survival-info>small { display:block; font-size:7px; line-height:1.7; color:#8fa57f; margin-top:8px; }
+.skip-day { display:block; width:100%; border:1px solid #b4a67770; padding:9px 6px; margin-top:12px; border-radius:2px; color:#e3d7ac; font-size:10px; background:#b4a67712; }
+.skip-day:hover { background:#b4a67725; }
+.skip-day[aria-pressed="true"] { background:#b4a67725; border-color:#cbb77c; }
+.skip-day:disabled { opacity:.5; cursor:default; }
+#skip-day-status { margin-top:6px; font-size:7px; line-height:1.5; color:#a5b394; }
+.game-over-overlay { position:absolute; inset:0; z-index:400; display:grid; place-items:center; padding:22px; background:#0b1816df; backdrop-filter:blur(8px); pointer-events:auto; }
+.game-over-card { width:min(440px,100%); border:1px solid #b3a57565; padding:36px; text-align:center; background:linear-gradient(145deg,#293a2e,#15271f); box-shadow:0 20px 80px #0005; }
+.game-over-card h2 { font-size:38px; margin:18px 0; color:#e6d7ad; }
+.game-over-card p { color:#b2bea3; font-size:13px; line-height:1.8; }
+#game-over-result { margin:24px 0; padding:16px 0; border-block:1px solid #adab7133; color:#d7c998; font-size:12px; }
+.game-over-card button { width:100%; margin-bottom:10px; }
+.game-over-card small { display:block; color:#92a184; font-size:10px; line-height:1.7; margin-top:12px; }
+@media(max-width:650px) { .skip-day { font-size:8px; padding:7px 4px; } .survival-info>small,#skip-day-status { font-size:6px; } .game-over-card { padding:24px; } }

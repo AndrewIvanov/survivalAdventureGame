@@ -34,7 +34,7 @@ test('warning is emitted once; night starts exactly once; empty world pauses the
   assert.equal(world.events.filter(e => e.type === 'night-warning').length, 1);
   night(world); assert.equal(world.survival.wave.night, 1);
   world.tick(.05); assert.equal(world.events.filter(e => e.type === 'night-start').length, 1);
-  assert.equal(world.survival.wave.spawned, 40);
+  assert.equal(world.survival.wave.spawned, 5);
   world.leave(player.id); const clock = world.survival.clockMs, elapsed = world.elapsed;
   world.tick(200); assert.equal(world.survival.clockMs, clock); assert.equal(world.elapsed, elapsed);
 });
@@ -78,7 +78,7 @@ test('victory grants one shared reward and quest progress, with no duplicate aft
   night(world); world.survival.wave.spawned = world.survival.wave.total;
   for (const m of world.monsters.filter(m => m.raidId)) m.hp = 0;
   resolveWave(world); const gold = player.gold;
-  assert.equal(gold, 15); assert.equal(friend.gold, 15); assert.equal(player.quests.defense.progress, 1);
+  assert.equal(gold, 65); assert.equal(friend.gold, 65); assert.equal(player.quests.defense.progress, 1);
   resolveWave(world); assert.equal(player.gold, gold);
   const restored = new GameWorld(world.serialize()); restored.join('a', 'A', 'ranger');
   resolveWave(restored); assert.equal(restored.players.get('a').gold, gold); assert.deepEqual(restored.survival.defendedNights, [1]);
@@ -89,7 +89,7 @@ test('dawn retreats remaining enemies without death rewards and repairs some vil
   const kills = world.kills; world.survival.clockMs = CYCLE_MS - 50;
   world.tick(.05); assert.equal(world.survival.wave.status, 'survived');
   assert.ok(world.village.hp > 300); assert.equal(world.kills, kills);
-  assert.ok(!world.monsters.some(m => m.raidId && m.hp > 0)); assert.equal(player.gold, 15);
+  assert.ok(!world.monsters.some(m => m.raidId && m.hp > 0)); assert.equal(player.gold, 65);
 });
 
 test('falling village ends the raid without resetting heroes; repair validates NPC, money and wave', () => {
@@ -170,7 +170,7 @@ test('SQLite restores clock, wave identity, pending boss attack and village heal
   const store = new SaveStore(':memory:'); store.save(world.serialize());
   const restored = new GameWorld(store.load(world.code));
   assert.equal(restored.village.hp, 418); assert.equal(restored.survival.clockMs, world.survival.clockMs);
-  assert.equal(restored.survival.wave.id, world.survival.wave.id); assert.equal(restored.survival.wave.spawned, 40);
+  assert.equal(restored.survival.wave.id, world.survival.wave.id); assert.equal(restored.survival.wave.spawned, 5);
   assert.deepEqual(restored.monsters.find(m => m.id === boss.id).telegraph, boss.telegraph);
   restored.join(player.id, 'A', 'ranger'); restored.tick(.05);
   assert.equal(restored.monsters.filter(m => m.kind === 'guardian' && m.hp > 0).length, 1); store.close();

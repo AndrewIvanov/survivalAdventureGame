@@ -5,6 +5,7 @@ import { GameWorld } from '../../server/world.js';
 import { SURVIVAL, CYCLE_MS } from '../../shared/survival.js';
 import { NPCS } from '../../shared/rpg.js';
 import { makeItem, addItem, refreshStats } from '../../server/inventory.js';
+import { damagePlayer } from '../../server/combat.js';
 import { beginNight, updateSurvival } from '../../server/survival.js';
 
 const server = await createGameServer({ database: ':memory:', dev: true });
@@ -23,10 +24,13 @@ world.join = (...args) => {
 };
 server.worlds.set(world.id, world); await server.store.save(world.serialize());
 await server.listen(3001, '127.0.0.1');
-console.log('Disposable preview: http://127.0.0.1:3001 · join NIGHT2. Console: day, night 2/4/6/8, smith, shrine, dawn.');
+console.log('Disposable preview: http://127.0.0.1:3001 · join NIGHT2. Console: day, night 2/4/6/8, smith, shrine, dawn, defeat.');
+const previewWorld = world;
 const input = createInterface({ input: process.stdin });
 input.on('line', line => {
+  const world = [...server.worlds.values()].find(w => [...w.players.values()].some(p => p.online)) || previewWorld;
   const [command, number] = line.trim().split(' ');
+  if (command === 'defeat') for (const player of world.players.values()) if (player.online) { player.invulnerableUntil = 0; damagePlayer(world, { kind: 'guardian' }, player, 999999); }
   if (command === 'night') {
     const n = Number(number) || 2;
     world.monsters = []; world.survival.lastNight = n - 1;

@@ -3,6 +3,7 @@ import { clockInfo } from '../shared/survival.js';
 import { distance, inVillage } from '../shared/config.js';
 import { addItem, makeItem, inventoryAction, consumeItem, refreshStats } from './inventory.js';
 import { questAction, progressQuests } from './quests.js';
+import { skipDay } from './survival.js';
 import { summonGuardian } from './boss.js';
 
 export function nearbyNpc(world, player, npcId) {
@@ -12,8 +13,10 @@ export function nearbyNpc(world, player, npcId) {
   return npc;
 }
 export function rpgAction(world, player, action) {
+  if (world.gameOver) throw new Error('Игра завершена. Начните новое приключение.');
   if (!player?.online || player.hp <= 0) throw new Error('Герой сейчас не может действовать.');
   if (!action || typeof action.type !== 'string') throw new Error('Неверное действие.');
+  if (action.type === 'day:skip') return skipDay(world, player, action.ready);
   if (['equip', 'unequip', 'use'].includes(action.type)) return inventoryAction(world, player, action);
   if (action.type === 'class') {
     if (typeof action.classId !== 'string' || !Object.hasOwn(CLASSES, action.classId)) throw new Error('Неизвестный класс.');

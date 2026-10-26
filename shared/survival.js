@@ -2,7 +2,7 @@ import { WORLD, inVillage } from './config.js';
 
 export const SURVIVAL = {
   dayMs: 300000, nightMs: 120000, warningMs: 30000, villageHp: 900,
-  maxRaiders: 400, spawnInterval: 10000, batchSize: 40,
+  maxRaiders: 400, batchSize: 5,
   core: { x: WORLD.village.x, y: WORLD.village.y + 78, radius: 32 },
   shrine: { id: 'guardian-shrine', name: 'Обелиск призыва', x: 2180, y: 1108 },
 };
@@ -13,6 +13,7 @@ export function clockInfo(clockMs) {
   const night = offset >= SURVIVAL.dayMs;
   return { day, phase: night ? 'night' : 'day', nightNumber: night ? day : Math.max(0, day - 1), remaining: (night ? CYCLE_MS : SURVIVAL.dayMs) - offset, warning: !night && offset >= SURVIVAL.dayMs - SURVIVAL.warningMs, progress: offset / CYCLE_MS };
 }
+export const waveSize = (night, party) => Math.max(0, Math.min(36, 6 + night * 2 + party * 2) * 10 - 10);
 export const nightStrength = night => ({ hp: 1 + Math.max(0, night - 1) * .2, damage: 1 + Math.max(0, night - 1) * .15 });
 export const BOSS_FORMS = [
   { id: 'forest', name: 'Древний лесной страж' },

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength } from '../shared/survival.js';
+import { SURVIVAL, CYCLE_MS, clockInfo, nightStrength, waveSize } from '../shared/survival.js';
 import { MONSTERS } from '../shared/config.js';
 import { spawnMonster } from './spawns.js';
 import { spawnGuardian } from './boss.js';
@@ -7,8 +7,8 @@ import { grantExperience } from './progression.js';
 import { progressQuests } from './quests.js';
 
 export function initializeSurvival(saved) {
-  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 2 };
-  if (saved && saved.rulesVersion !== 2) {
+  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 3 };
+  if (saved && (saved.rulesVersion || 1) < 2) {
     const oldDay = Math.floor(saved.clockMs / 600000), offset = saved.clockMs % 600000;
     state.clockMs = oldDay * CYCLE_MS + (offset < 420000 ? offset / 420000 * SURVIVAL.dayMs : SURVIVAL.dayMs + (offset - 420000) / 180000 * SURVIVAL.nightMs);
     if (state.wave?.status === 'active') {
@@ -17,16 +17,36 @@ export function initializeSurvival(saved) {
       state.wave.bossSpawned = false; state.wave.bossDefeated = false;
     }
   }
+  if (saved && (saved.rulesVersion || 1) < 3 && state.wave?.status === 'active') {
+    state.wave.total = Math.max(0, state.wave.total - 10);
+    state.wave.spawned = Math.min(state.wave.spawned, state.wave.total);
+  }
   return state;
 }
 
 export function beginNight(world, night) {
   const state = world.survival;
   if (state.lastNight >= night) return;
-  state.lastNight = night;
+  state.lastNight = night; world.daySkipVotes.clear();
   const party = Math.max(1, [...world.players.values()].filter(p => p.online).length);
-  state.wave = { id: randomUUID(), night, status: 'active', total: Math.min(36, 6 + night * 2 + party * 2) * 10, spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: night % 2 === 0, bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
+  state.wave = { id: randomUUID(), night, status: 'active', total: waveSize(night, party), spawned: 0, startedAt: world.elapsed, nextSpawnAt: world.elapsed, bossRequired: night % 2 === 0, bossSpawned: false, bossDefeated: false, participants: [...world.players.keys()] };
   world.events.push({ type: 'night-start', night, boss: state.wave.bossRequired }); world.criticalSave = true;
+}
+
+export function skipDay(world, player, ready = true) {
+  if (world.gameOver) throw new Error('Игра завершена. Начните новое приключение.');
+  if (!player?.online || player.hp <= 0 || world.players.get(player.id) !== player) throw new Error('Герой сейчас не может действовать.');
+  const info = clockInfo(world.survival.clockMs);
+  if (info.phase !== 'day') throw new Error('Сейчас ночь. Пропустить можно только день.');
+  if (typeof ready !== 'boolean') throw new Error('Неверный выбор готовности.');
+  if (ready) world.daySkipVotes.add(player.id); else world.daySkipVotes.delete(player.id);
+  const online = [...world.players.values()].filter(p => p.online);
+  if (online.every(p => world.daySkipVotes.has(p.id))) {
+    // Jump the calendar, not simulation time: cooldowns, bosses and health do not advance.
+    world.survival.clockMs = (info.day - 1) * CYCLE_MS + SURVIVAL.dayMs;
+    beginNight(world, info.day); updateSurvival(world, 0);
+    world.criticalSave = true;
+  }
 }
 
 export function endWave(world, status) {
@@ -76,7 +96,7 @@ function spawnBatch(world) {
     wave.spawned++;
   }
   if (wave.bossRequired && !wave.bossSpawned && active + count < SURVIVAL.maxRaiders) { spawnGuardian(world, wave); wave.bossSpawned = true; }
-  wave.nextSpawnAt = world.elapsed + SURVIVAL.spawnInterval;
+  wave.nextSpawnAt = wave.startedAt + wave.spawned / wave.total * SURVIVAL.nightMs;
   if (count) world.criticalSave = true;
 }
 
@@ -119,6 +139,7 @@ export function updateSurvival(world, dt) {
 export function survivalSnapshot(world) {
   const state = world.survival, wave = state.wave;
   const info = clockInfo(state.clockMs);
-  return { ...info, clockMs: state.clockMs, lastNight: state.lastNight, lastSummonDay: state.lastSummonDay, summonAvailable: info.phase === 'day' && state.lastSummonDay !== info.day && !world.monsters.some(m => m.obelisk && m.hp > 0), guardianDefeated: state.guardianDefeated, guardianActive: world.monsters.some(m => m.obelisk && m.hp > 0), defeatedBosses: state.defeatedBosses.length, defended: state.defendedNights.length, failed: state.failedNights.length,
+  const online = [...world.players.values()].filter(p => p.online);
+  return { ...info, skipDayVotes: info.phase === 'day' ? online.filter(p => world.daySkipVotes.has(p.id)).map(p => p.id) : [], skipDayPlayers: online.length, clockMs: state.clockMs, lastNight: state.lastNight, lastSummonDay: state.lastSummonDay, summonAvailable: info.phase === 'day' && state.lastSummonDay !== info.day && !world.monsters.some(m => m.obelisk && m.hp > 0), guardianDefeated: state.guardianDefeated, guardianActive: world.monsters.some(m => m.obelisk && m.hp > 0), defeatedBosses: state.defeatedBosses.length, defended: state.defendedNights.length, failed: state.failedNights.length,
     wave: wave ? { ...wave, alive: world.monsters.filter(m => m.hp > 0 && m.raidId === wave.id).length } : null };
 }

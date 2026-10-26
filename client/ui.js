@@ -95,6 +95,14 @@ export class Interface {
     this.$('restore-key').onclick = () => this.openPanel('restore');
     this.$('modal-backdrop').addEventListener('click', event => { if (event.target === this.$('modal-backdrop')) this.closePanel(); });
     document.addEventListener('keydown', event => {
+      if (this.net.active && this.state?.gameOver) {
+        if (event.code === 'Tab') {
+          const first = this.$('game-over-restart'), last = this.$('game-over-menu');
+          if (event.shiftKey && document.activeElement !== last) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement !== first) { event.preventDefault(); first.focus(); }
+        }
+        return;
+      }
       if (event.code === 'Tab' && this.panel) {
         const focusable = [...this.$('modal').querySelectorAll('button, input, a')].filter(e => !e.disabled);
         if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus(); }
@@ -199,12 +207,12 @@ export class Interface {
     const cooldown = Math.max(0, PLAYER.dashCooldown - (state.elapsed - me.lastDash));
     this.$('dash-cooldown').hidden = cooldown <= 0;
     this.$('dash-cooldown').textContent = (cooldown / 1000).toFixed(1);
-    this.$('death-overlay').hidden = me.hp > 0;
+    this.$('death-overlay').hidden = me.hp > 0 || !!state.gameOver;
     this.$('respawn-counter').textContent = `Возвращение через ${Math.max(1, Math.ceil((me.respawnAt - state.elapsed) / 1000))} с`;
     if (state.savedAt) this.$('save-status').innerHTML = `${icon('save')} Сохранено в ${new Date(state.savedAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}`;
     this.drawMap(this.$('minimap'), false);
     if (this.panel === 'map') this.drawMap(this.$('world-map'), true);
-    this.rpg.render(state, me);
+    if (!state.gameOver) this.rpg.render(state, me);
     this.survival.render(state, me);
   }
   drawMap(canvas, full) {

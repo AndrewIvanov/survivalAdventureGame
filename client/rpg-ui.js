@@ -44,7 +44,7 @@ export class RpgInterface {
       this.ui.$('class-description').textContent = CLASSES[this.classId].description;
     });
     document.addEventListener('keydown', event => {
-      if (/INPUT|TEXTAREA/.test(event.target.tagName) || !this.net.active || event.repeat) return;
+      if (/INPUT|TEXTAREA/.test(event.target.tagName) || !this.net.active || this.ui.state?.gameOver || event.repeat) return;
       const code = event.code;
       if (['KeyQ', 'KeyE', 'KeyR'].includes(code) && !this.ui.panel) { event.preventDefault(); this.ui.scene.cast(code.slice(-1).toLowerCase()); }
       if (code === 'KeyF' && !this.ui.panel) { event.preventDefault(); this.interact(); }

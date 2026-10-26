@@ -31,24 +31,24 @@ test('daylight has no ambient monsters; dawn removes all night creatures with no
   world.survival.clockMs = CYCLE_MS - 50; world.tick(.05);
   assert.ok(world.monsters.every(m => m.obelisk)); assert.equal(world.monsters.length, 1);
   assert.equal(world.monsters[0].id, boss.id); assert.equal(world.kills, kills);
-  assert.equal(hero.gold, 15);
+  assert.equal(hero.gold, 65);
   world.tick(60); assert.ok(world.monsters.every(m => m.obelisk));
 });
 
-test('first night contains ten times the former wave with exactly fivefold base HP and damage', () => {
+test('first night has ten fewer enemies and half the previous HP and damage', () => {
   const { world } = setup(); night(world, 1);
-  assert.equal(world.survival.wave.total, 100); assert.equal(world.survival.wave.spawned, 40);
+  assert.equal(world.survival.wave.total, 90); assert.equal(world.survival.wave.spawned, 5);
   const wolf = world.monsters.find(m => m.kind === 'wolf');
-  assert.equal(wolf.maxHp, 64 * 5); assert.equal(wolf.damage, 9 * 5);
+  assert.equal(wolf.maxHp, 64 * 2.5); assert.equal(wolf.damage, Math.round(9 * 2.5));
   world.join('friend', 'Друг', 'sage'); night(world, 2);
-  assert.equal(world.survival.wave.total, (6 + 2 * 2 + 2 * 2) * 10);
+  assert.equal(world.survival.wave.total, (6 + 2 * 2 + 2 * 2) * 10 - 10);
 });
 
 test('even the largest planned wave can spawn within the two-minute night', () => {
   const { world } = setup(); night(world, 30);
-  for (let i = 0; i < 10; i++) { world.elapsed += SURVIVAL.spawnInterval; updateSurvival(world, 0); }
-  assert.equal(world.survival.wave.total, 360); assert.equal(world.survival.wave.spawned, 360);
-  assert.equal(world.monsters.length, 361); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
+  for (let i = 0; i < 2399; i++) { world.elapsed += 50; updateSurvival(world, .05); }
+  assert.equal(world.survival.wave.total, 350); assert.equal(world.survival.wave.spawned, 350);
+  assert.equal(world.monsters.length, 351); assert.ok(world.monsters.length <= SURVIVAL.maxRaiders);
 });
 
 test('every consecutive night increases both normal-monster HP and damage', () => {

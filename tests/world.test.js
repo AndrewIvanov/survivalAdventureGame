@@ -60,7 +60,7 @@ test('shared enemy damage, attack cooldown, team experience and no double reward
   assert.equal(a.xp, MONSTERS.wolf.xp); assert.equal(b.xp, MONSTERS.wolf.xp);
   assert.equal(world.kills, 1); assert.equal(world.criticalSave, true);
   world.elapsed += PLAYER.attackCooldown; attack(world, b);
-  assert.equal(world.kills, 1); assert.equal(a.gold, MONSTERS.wolf.gold);
+  assert.equal(world.kills, 1); assert.equal(a.gold, PLAYER.startingGold + MONSTERS.wolf.gold);
 });
 
 test('attacks check direction and range and grant levels', () => {
@@ -72,13 +72,14 @@ test('attacks check direction and range and grant levels', () => {
   assert.equal(p.level, 2); assert.equal(p.xp, 14); assert.equal(p.maxHp, 132);
 });
 
-test('death respawns in village; world pauses with no connected heroes', () => {
+test('death respawns in village while an ally survives; world pauses with no connected heroes', () => {
   const world = combatWorld(), p = world.join('a', 'A', 'ranger');
+  world.join('b', 'Друг', 'sage');
   p.hp = 1; const m = world.monsters[0]; hurtPlayer(world, m, p);
   assert.equal(p.hp, 0); assert.equal(p.respawnAt, PLAYER.respawnDelay);
   for (let i = 0; i < 101; i++) world.tick(.05);
   assert.equal(p.hp, p.maxHp); assert.equal(p.x, WORLD.spawn.x);
-  world.leave('a'); const elapsed = world.elapsed;
+  world.leave('a'); world.leave('b'); const elapsed = world.elapsed;
   world.tick(1); assert.equal(world.elapsed, elapsed);
 });
 

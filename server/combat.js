@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { PLAYER, MONSTERS, distance } from '../shared/config.js';
 import { effectiveStats, CLASSES } from '../shared/rpg.js';
 import { canStand } from '../shared/map.js';
+import { checkPartyDefeat } from './game-over.js';
 import { rewardKill } from './rewards.js';
 
 export function damageMonster(world, player, monster, amount, { critical = false, knockback = 0 } = {}) {
-  if (monster.hp <= 0) return;
+  if (world.gameOver || monster.hp <= 0) return;
   const damage = Math.max(1, Math.round(amount));
   monster.hp = Math.max(0, monster.hp - damage);
   monster.hurtUntil = world.elapsed + 250; monster.targetId = player.id;
@@ -46,7 +47,7 @@ export function projectile(world, player, options = {}) {
 
 export function attack(world, player) {
   const stats = effectiveStats(player);
-  if (player.hp <= 0 || world.elapsed - player.lastAttack < stats.cooldown) return;
+  if (world.gameOver || player.hp <= 0 || world.elapsed - player.lastAttack < stats.cooldown) return;
   player.lastAttack = world.elapsed;
   if (player.classId === 'mage' || player.classId === 'archer') projectile(world, player);
   else {
@@ -84,7 +85,7 @@ export function hurtPlayer(world, monster, player) {
 }
 
 export function damagePlayer(world, monster, player, amount) {
-  if (player.hp <= 0 || world.elapsed < player.invulnerableUntil) return;
+  if (world.gameOver || player.hp <= 0 || world.elapsed < player.invulnerableUntil) return;
   const armor = effectiveStats(player).armor + (player.guardUntil > world.elapsed ? 10 + (player.abilityRanks.r - 1) * 4 : 0);
   const damage = Math.max(1, Math.round(amount - armor));
   player.hp = Math.max(0, player.hp - damage); player.lastHurt = world.elapsed;
@@ -92,5 +93,6 @@ export function damagePlayer(world, monster, player, amount) {
   if (player.hp === 0) {
     player.respawnAt = world.elapsed + PLAYER.respawnDelay; player.input = {};
     world.events.push({ type: 'death', id: player.id }); world.criticalSave = true;
+    checkPartyDefeat(world);
   }
 }
