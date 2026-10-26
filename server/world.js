@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { WORLD, PLAYER, MONSTERS, distance, inVillage, clamp } from '../shared/config.js';
+import { WORLD, PLAYER, MONSTERS, MONSTER_REBALANCE, distance, inVillage, clamp } from '../shared/config.js';
 import { createMap, createCollisionGrid, canStand, moveEntity, seeded } from '../shared/map.js';
 import { attack, updateProjectiles } from './combat.js';
 import { updateMonsters } from './ai.js';
@@ -61,12 +61,12 @@ export class GameWorld {
     }
     if (saved?.survival && (saved.survival.rulesVersion || 1) < 3) {
       for (const monster of this.monsters) {
-        monster.hp /= 2; monster.maxHp /= 2; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage * 2 / .8) / 2;
+        monster.hp /= 2; monster.maxHp /= 2; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage / MONSTER_REBALANCE * 2 / .8) / 2;
       }
     }
     if (saved?.survival && (saved.survival.rulesVersion || 1) < 4) {
       for (const monster of this.monsters) {
-        monster.hp *= .8; monster.maxHp *= .8; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage / .8) * .8;
+        monster.hp *= .8; monster.maxHp *= .8; monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage / MONSTER_REBALANCE / .8) * .8;
       }
       const wave = this.survival.wave;
       if (wave?.status === 'active') wave.nextSpawnAt = Math.max(this.elapsed, wave.startedAt + wave.spawned / wave.total * SURVIVAL.nightMs);
@@ -83,6 +83,13 @@ export class GameWorld {
       if (wave?.status === 'active') {
         wave.nextSpawnAt = Math.max(this.elapsed, wave.startedAt + wave.spawned / 50 * SURVIVAL.nightMs);
         if (wave.bossRequired && !wave.bossDefeated) wave.bossSpawned = this.monsters.some(m => m.kind === 'guardian' && m.raidId === wave.id && m.hp > 0);
+      }
+    }
+    if (saved && (saved.survival?.rulesVersion || 1) < 6) {
+      for (const monster of this.monsters) {
+        const healthFraction = Math.min(1, Math.max(0, monster.hp / monster.maxHp));
+        monster.maxHp = Math.max(1, Math.round(monster.maxHp * MONSTER_REBALANCE)); monster.hp = monster.maxHp * healthFraction;
+        monster.damage = (monster.damage ?? MONSTERS[monster.kind].damage / MONSTER_REBALANCE) * MONSTER_REBALANCE;
       }
     }
     initializeResources(this); rebuildEnvironment(this);
@@ -117,6 +124,7 @@ export class GameWorld {
     if (p) { dropCarriedGravestones(this, p); p.online = false; p.input = {}; this.daySkipVotes.clear(); if (checkDefeat) checkPartyDefeat(this); }
   }
 
+  // Only terrain and fences block movement. Living actors never stop a hero.
   move(entity, dx, dy, radius = PLAYER.radius) { moveEntity(entity, dx, dy, this.grid, radius); }
 
   input(id, data, now = Date.now()) {

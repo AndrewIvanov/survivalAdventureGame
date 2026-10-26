@@ -121,10 +121,10 @@ test('resource depletion and damaged upgraded fences survive a verified save; re
   player.x += 100; restored.elapsed += 1001; updateResources(restored); assert.equal(restored.resourceState[node.id], undefined); assert.ok(canStand(node.x, node.y, restored.grid));
 });
 
-test('mana regeneration is one fifth of the old rate and monster HP/damage stay unchanged while movement slows 5%', () => {
+test('mana regeneration stays slow and enemy HP, damage and movement get the latest 5% reduction', () => {
   const { world, hero } = setup(); hero.mana = 0; world.tick(1); assert.equal(hero.mana, 2.4);
   hero.x = 2300; hero.y = 1152; world.tick(1); assert.equal(hero.mana, 3.4);
   for (const [id, hp, damage, speed] of [['wolf', 128, 18, 98], ['goblin', 192, 28, 72], ['nightstalker', 164, 24, 120], ['guardian', 2200, 44, 64]]) {
-    assert.equal(MONSTERS[id].hp, hp); assert.equal(MONSTERS[id].damage, damage); assert.ok(Math.abs(MONSTERS[id].speed - speed * .95) < .0001);
+    assert.equal(MONSTERS[id].hp, hp * .95); assert.equal(MONSTERS[id].damage, damage * .95); assert.ok(Math.abs(MONSTERS[id].speed - speed * .95 * .95) < .0001);
   }
 });

@@ -143,6 +143,7 @@ test('overlapping root warnings damage each hero once per boss attack', () => {
   boss.telegraph = { kind: 'roots', startedAt: 0, resolveAt: 1, circles: [{ x: 2180, y: 1152, radius: 80 }, { x: 2180, y: 1152, radius: 80 }] };
   player.hp = 1000; const hp = player.hp; world.elapsed = 1; updateBosses(world, .05);
   assert.equal(player.hp, hp - Math.max(1, Math.round(boss.damage * 1.15 - player.stats.armor)));
+  assert.equal(player.x, 2180); assert.equal(player.y, 1152); assert.equal(friend.x, 2180); assert.equal(friend.y, 1152);
 });
 
 test('boss victory yields personal persistent epic weapons and cannot be duplicated or stolen', () => {

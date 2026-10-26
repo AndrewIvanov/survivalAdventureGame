@@ -7,7 +7,7 @@ import { grantExperience } from './progression.js';
 import { progressQuests } from './quests.js';
 
 export function initializeSurvival(saved) {
-  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 5 };
+  const state = { clockMs: 0, lastNight: 0, warningDay: 0, wave: null, defendedNights: [], failedNights: [], guardianDefeated: false, defeatedBosses: [], lastSummonDay: 0, ...structuredClone(saved), rulesVersion: 6 };
   if (saved && (saved.rulesVersion || 1) < 2) {
     const oldDay = Math.floor(saved.clockMs / 600000), offset = saved.clockMs % 600000;
     state.clockMs = oldDay * CYCLE_MS + (offset < 420000 ? offset / 420000 * SURVIVAL.dayMs : SURVIVAL.dayMs + (offset - 420000) / 180000 * SURVIVAL.nightMs);

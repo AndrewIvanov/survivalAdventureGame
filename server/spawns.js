@@ -16,6 +16,6 @@ export function spawnMonster(world, kind, x, y, extra = {}) {
   const config = MONSTERS[kind], point = freePoint(world, x, y, kind === 'guardian' ? 25 : 12);
   const monster = world.monsterPool.pop() || {};
   for (const key of Object.keys(monster)) delete monster[key];
-  Object.assign(monster, { id: randomUUID(), kind, ...point, homeX: point.x, homeY: point.y, hp: config.hp, maxHp: config.hp, damage: config.damage, phase: world.random() * 6.28, angle: 0, state: 'patrol', lastAttack: -2000, hurtUntil: 0, respawnAt: 0, spawnedAt: world.elapsed, ...extra });
+  Object.assign(monster, { id: randomUUID(), kind, ...point, homeX: point.x, homeY: point.y, hp: Math.round(config.hp), maxHp: Math.round(config.hp), damage: config.damage, phase: world.random() * 6.28, angle: 0, state: 'patrol', lastAttack: -2000, hurtUntil: 0, respawnAt: 0, spawnedAt: world.elapsed, ...extra });
   world.monsters.push(monster); return monster;
 }

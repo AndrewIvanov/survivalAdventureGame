@@ -44,11 +44,11 @@ test('older balance saves migrate once, resize waves and remove extra helpers wi
   boss.hp = 1000; boss.maxHp = 4000; boss.damage = 60;
   saved.monsters = [boss, { ...wolf, id: 'helper', summonOwner: boss.id }, ...Array.from({ length: 130 }, (_, i) => ({ ...wolf, id: `wolf-${i}`, hp: 40, maxHp: 160, damage: 22.5 }))];
   const restored = new GameWorld(saved);
-  assert.equal(restored.survival.rulesVersion, 5); assert.equal(restored.survival.wave.total, 50);
+  assert.equal(restored.survival.rulesVersion, 6); assert.equal(restored.survival.wave.total, 50);
   assert.equal(restored.survival.wave.spawned, 50); assert.equal(restored.monsters.length, 51);
   const migrated = restored.monsters.find(m => m.id === boss.id);
-  assert.equal(migrated.maxHp, 3200); assert.equal(migrated.hp, 800); assert.equal(migrated.damage, 48);
-  assert.equal(restored.monsters.find(m => m.id === 'wolf-129').hp, 32);
+  assert.equal(migrated.maxHp, 3040); assert.equal(migrated.hp, 760); assert.equal(migrated.damage, 48 * .95);
+  assert.equal(restored.monsters.find(m => m.id === 'wolf-129').hp, 30.5);
   assert.ok(!restored.monsters.some(m => m.id === 'helper'));
   assert.equal(restored.kills, 0); assert.equal(restored.players.get(hero.id).gold, 123);
   assert.equal(restored.survival.clockMs, saved.survival.clockMs);
@@ -71,13 +71,25 @@ test('daylight has no ambient monsters; dawn removes all night creatures with no
   world.tick(60); assert.ok(world.monsters.every(m => m.obelisk));
 });
 
-test('first two nights have 50 enemies and retain the existing HP and damage', () => {
+test('first two nights keep 50 enemies with the latest reduced HP and damage', () => {
   const { world } = setup(); night(world, 1);
   assert.equal(world.survival.wave.total, 50); assert.equal(world.survival.wave.spawned, 5);
   const wolf = world.monsters.find(m => m.kind === 'wolf');
-  assert.equal(wolf.maxHp, 128); assert.equal(wolf.damage, 18);
+  assert.equal(wolf.maxHp, 122); assert.equal(wolf.damage, 17);
   world.join('friend', 'Друг', 'sage'); night(world, 2);
   assert.equal(world.survival.wave.total, 50);
+});
+
+test('the latest balance updates wounded enemies once without changing rewards or their health fraction', () => {
+  const { world, hero } = setup(); night(world, 3);
+  const saved = world.serialize(); saved.survival.rulesVersion = 5;
+  const wolf = saved.monsters.find(m => m.kind === 'wolf'), boss = saved.monsters.find(m => m.kind === 'guardian');
+  wolf.hp = 64; wolf.maxHp = 128; wolf.damage = 18; boss.hp = 2000; boss.maxHp = 4000; boss.damage = 60;
+  const restored = new GameWorld(saved), updatedWolf = restored.monsters.find(m => m.id === wolf.id), updatedBoss = restored.monsters.find(m => m.id === boss.id);
+  assert.equal(updatedWolf.maxHp, 122); assert.equal(updatedWolf.hp, 61); assert.equal(updatedWolf.damage, 18 * .95);
+  assert.equal(updatedBoss.maxHp, 3800); assert.equal(updatedBoss.hp, 1900); assert.equal(updatedBoss.damage, 60 * .95);
+  assert.equal(restored.players.get(hero.id).gold, hero.gold); assert.equal(restored.kills, world.kills);
+  assert.deepEqual(new GameWorld(restored.serialize()).monsters, restored.monsters);
 });
 
 test('later waves still spawn throughout the two-minute night', () => {

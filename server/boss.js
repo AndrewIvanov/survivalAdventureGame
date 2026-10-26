@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { MONSTERS, distance } from '../shared/config.js';
+import { MONSTERS, MONSTER_REBALANCE, distance } from '../shared/config.js';
 import { SURVIVAL, clockInfo, nightStrength, BOSS_FORMS } from '../shared/survival.js';
 import { pursue } from './ai.js';
 import { spawnMonster } from './spawns.js';
@@ -12,7 +12,7 @@ export function spawnGuardian(world, raid = null) {
   const day = clockInfo(world.survival.clockMs).day, night = raid?.night || day;
   const strength = nightStrength(night);
   const form = BOSS_FORMS[(raid ? Math.max(0, Math.floor(raid.night / 3) - 1) : day - 1) % BOSS_FORMS.length];
-  const hp = Math.round((MONSTERS.guardian.hp + (averageLevel - 1) * 180) * (party.length > 1 ? 1.45 : 1) * strength.hp);
+  const hp = Math.round((MONSTERS.guardian.hp + (averageLevel - 1) * 180 * MONSTER_REBALANCE) * (party.length > 1 ? 1.45 : 1) * strength.hp);
   return spawnMonster(world, 'guardian', raid ? 2000 : 2240, 1152, {
     hp, maxHp: hp, damage: Math.round(MONSTERS.guardian.damage * (1 + (averageLevel - 1) * .05) * strength.damage),
     variant: form.id, name: form.name, obelisk: !raid,
@@ -51,7 +51,6 @@ export function updateBosses(world, dt) {
         for (const circle of attack.circles) for (const player of players) if (!hit.has(player.id) && distance(player, circle) <= circle.radius + 8) {
           hit.add(player.id);
           damagePlayer(world, boss, player, boss.damage * (attack.kind === 'roots' ? 1.15 : 1.6));
-          if (player.hp > 0) { const angle = Math.atan2(player.y - circle.y, player.x - circle.x); world.move(player, Math.cos(angle) * 25, Math.sin(angle) * 25); }
         }
         const walls = new Set();
         for (const circle of attack.circles) for (const fence of [...world.structures]) if (!walls.has(fence.id) && distance(fence, circle) <= circle.radius + 15) { walls.add(fence.id); damageFence(world, boss, fence, boss.damage * 1.6); }

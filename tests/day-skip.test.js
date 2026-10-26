@@ -66,10 +66,10 @@ test('rebalance migrates current monsters exactly once, retains wound percentage
   const saved = world.serialize(); saved.survival.rulesVersion = 2; saved.survival.wave.total = 100;
   const monster = saved.monsters[0]; monster.hp = 80; monster.maxHp = 320; monster.damage = 45;
   const restored = new GameWorld(saved), migrated = restored.monsters.find(m => m.id === monster.id);
-  assert.equal(migrated.hp, 32); assert.equal(migrated.maxHp, 128); assert.equal(migrated.damage, 18);
+  assert.equal(migrated.hp, 30.5); assert.equal(migrated.maxHp, 122); assert.equal(migrated.damage, 18 * .95);
   assert.equal(restored.survival.wave.total, 50); assert.equal(restored.survival.clockMs, saved.survival.clockMs);
   assert.equal(restored.players.get(a.id).gold, a.gold);
-  const again = new GameWorld(restored.serialize()); assert.equal(again.monsters.find(m => m.id === monster.id).maxHp, 128);
+  const again = new GameWorld(restored.serialize()); assert.equal(again.monsters.find(m => m.id === monster.id).maxHp, 122);
 });
 
 test('rebalance retires excess slots from a fully spawned wave without granting rewards', () => {

@@ -58,6 +58,16 @@ test('heroes walk and dash through live trees, including after loading a saved w
   }
 });
 
+test('a crowd of living enemies and a boss cannot block walking or dashing', () => {
+  const world = new GameWorld(), player = world.join('walker', 'Следопыт', 'ranger');
+  world.survival.clockMs = SURVIVAL.dayMs; world.survival.lastNight = 1;
+  player.x = 2100; player.y = 1152; player.invulnerableUntil = 100000;
+  for (const [index, kind] of ['wolf', 'goblin', 'nightstalker', 'guardian'].entries()) spawnMonster(world, kind, 2120 + index * 15, 1152, { nextSpecialAt: Infinity });
+  world.move(player, 140, 0); assert.equal(player.x, 2240);
+  player.x = 2100; world.input(player.id, { x: 1, y: 0, angle: 0 }, 1000); world.dash(player.id); world.tick(.1, 1000);
+  assert.ok(Math.abs(player.x - 2165) < .001); assert.equal(player.y, 1152); assert.equal(player.hp, player.maxHp);
+});
+
 test('shared enemy damage, attack cooldown, team experience and no double rewards', () => {
   const world = combatWorld(); const a = world.join('a', 'A', 'ranger'), b = world.join('b', 'B', 'sage');
   world.monsters = [{ ...world.monsters[0], x: a.x + 45, y: a.y, hp: 24, maxHp: 64 }];
